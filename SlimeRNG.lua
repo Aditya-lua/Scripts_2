@@ -1009,10 +1009,10 @@ local SelectedTargetUid = nil
 local SelectedSacrificeUid = nil
 
 local function loadMainHub()
-    local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/source.lua"))()
-
+    local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Aditya-lua/Scripts_2/refs/heads/main/main.lua"))()
+	
     local Window = WindUI:CreateWindow({
-        Title = "Ducky Hub | Advanced",
+        Title = "Duckie",
         Icon = "", 
         Author = "by Aditya",
         Folder = "DuckyHubConfig",
