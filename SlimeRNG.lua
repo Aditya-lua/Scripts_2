@@ -1209,6 +1209,207 @@ local function loadMainHub()
                 title = "Rare Roll!",
                 color = 0x2B2D31,
                 description = string.format(
+local function loadMainHub()
+    local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Aditya-lua/Scripts_2/refs/heads/main/main.lua"))()
+	
+    local Window = WindUI:CreateWindow({
+        Title = "Duckie",
+        Icon = "", 
+        Author = "by Aditya",
+        Folder = "DuckyHubConfig",
+        Size = UDim2.fromOffset(580, 460),
+        Transparent = true,
+        Theme = "Dark",
+        SideBarWidth = 170,
+        HasOutline = true
+    })
+
+    local TabContact  = Window:Tab({ Title = "Contact & Info", Icon = "lucide-info" })
+    local TabFarm     = Window:Tab({ Title = "Combat & Farm",  Icon = "lucide-swords" })
+    local TabCollect  = Window:Tab({ Title = "Loot & Boosts",  Icon = "lucide-box" })
+    local TabCrafting = Window:Tab({ Title = "Crafting & XP",  Icon = "lucide-wrench" })
+    local TabTeleport = Window:Tab({ Title = "Teleports",      Icon = "lucide-map-pin" })
+    local TabVisuals  = Window:Tab({ Title = "Visuals",        Icon = "lucide-eye" })
+    local TabPlayer   = Window:Tab({ Title = "Player",         Icon = "lucide-user" })
+    local TabWebhook  = Window:Tab({ Title = "Webhook",        Icon = "lucide-satellite" })
+    local TabMisc     = Window:Tab({ Title = "Settings",       Icon = "lucide-settings" })
+
+    -- CONTACT TAB
+    TabContact:Section({ Title = "Bio" })
+    TabContact:Paragraph({ Title = "Welcome to Ducky!", Desc = "Ducky is a premium, lag-free script hub designed to give you the absolute best experience. We believe in keeping things free, safe, and powerful." })
+    TabContact:Section({ Title = "Team" })
+    TabContact:Paragraph({ Title = "👨‍💻 Developer: Aditya", Desc = "" })
+    TabContact:Paragraph({ Title = "👑 Owner: Big Bean", Desc = "" })
+    TabContact:Section({ Title = "Community" })
+    TabContact:Button({ Title = "Copy Discord Invite", Callback = function()
+        pcall(function() setclipboard("https://discord.gg/s6qfm7uycS") end)
+        WindUI:Notify({ Title = "Copied!", Content = "Discord invite copied to clipboard.", Duration = 3 })
+    end })
+    TabContact:Paragraph({ Title = "Link: discord.gg/s6qfm7uycS", Desc = "" })
+
+    -- FARM TAB
+    local ProgressionParagraph = TabFarm:Paragraph({Title = "📊 Live Progression Tracking", Desc = "Loading stats..."})
+    TabFarm:Section({ Title = "Combat" })
+    UI_Elements.Toggles.AutoMob = TabFarm:Toggle({ Title = "Auto Tween Mobs (Lowest HP)", Value = false, Callback = function(V) Toggles.AutoMob = V end })
+    UI_Elements.Sliders.TweenSpeed = TabFarm:Slider({ Title = "Tween Speed", Step = 1, Value = {Min = 10, Max = 300, Default = 75}, Callback = function(V) Settings.TweenSpeed = V end })
+    TabFarm:Section({ Title = "Progression" })
+    local LastRolledLabel = TabFarm:Paragraph({ Title = "🎲 Last Rolled: None", Desc = "" })
+    UI_Elements.Toggles.Roll = TabFarm:Toggle({ Title = "Auto Roll", Value = false, Callback = function(V) Toggles.Roll = V end })
+    UI_Elements.Toggles.Rebirth = TabFarm:Toggle({ Title = "Auto Rebirth", Value = false, Callback = function(V) Toggles.Rebirth = V end })
+    UI_Elements.Toggles.Zones = TabFarm:Toggle({ Title = "Auto Buy Zones", Value = false, Callback = function(V) Toggles.Zones = V end })
+    UI_Elements.Toggles.AutoUpgrade = TabFarm:Toggle({ Title = "Smart Auto Upgrade", Value = false, Callback = function(V) Toggles.AutoUpgrade = V end })
+    UI_Elements.Toggles.Equip = TabFarm:Toggle({ Title = "Auto Equip Best", Value = false, Callback = function(V) Toggles.Equip = V end })
+
+    task.spawn(function()
+        while true do
+            if Toggles.Roll then
+                pcall(function()
+                    local coins = tonumber(Modules.DataServiceClient:get("coins")) or 0
+                    local goop = tonumber(Modules.DataServiceClient:get("goop")) or 0
+                    local rebirths = tonumber(Modules.DataServiceClient:get("rebirths")) or 0
+                    local maxZone = tonumber(Modules.DataServiceClient:get("maxZone")) or 1
+                    local nextZoneId = maxZone + 1
+                    local nextZoneData = Modules.Zones.hasZone(nextZoneId) and Modules.Zones.getZone(nextZoneId)
+                    local zoneCostText = nextZoneData and formatNumber(nextZoneData.price) or "Maxed"
+                    local rebirthCostText = formatNumber(Modules.RebirthServiceUtils.getCost(rebirths))
+                    ProgressionParagraph:Set({
+                        Title = "📊 Live Progression Tracking",
+                        Desc = string.format(
+                            "💰 Coins: %s / %s (Next Zone Cost)\n\n🧪 Goop: %s / %s (Next Rebirth Cost)\n\n♻️ Rebirths: %s\n\n🗺️ Max Zone Unlocked: %s",
+                            formatNumber(coins), zoneCostText,
+                            formatNumber(goop), rebirthCostText,
+                            formatNumber(rebirths), maxZone
+                        )
+                    })
+                    LastRolledLabel:Set({ Title = "🎲 Last Rolled: " .. LastHatchedText, Desc = "" })
+                end)
+            end
+            task.wait(1)
+        end
+    end)
+
+    -- COLLECT TAB
+    TabCollect:Section({ Title = "Drops" })
+    UI_Elements.Toggles.AutoLoot = TabCollect:Toggle({ Title = "Auto Collect Drops", Value = false, Callback = function(V) Toggles.AutoLoot = V end })
+    
+    TabCollect:Section({ Title = "Pets & Rewards" })
+    UI_Elements.Toggles.AutoIndex = TabCollect:Toggle({ Title = "Auto Claim Index Rewards", Value = false, Callback = function(V) Toggles.AutoIndex = V end })
+    UI_Elements.Toggles.AutoFeed = TabCollect:Toggle({ Title = "Auto Feed Equipped", Value = false, Callback = function(V) Toggles.AutoFeed = V end })
+    UI_Elements.Toggles.AutoBoost = TabCollect:Toggle({ Title = "Auto Use Boosts", Value = false, Callback = function(V) Toggles.AutoBoost = V end })
+    UI_Elements.Toggles.AutoUseItemsLoot = TabCollect:Toggle({ Title = "Auto Use Items / Dice", Value = false, Callback = function(V) Toggles.AutoUseItemsLoot = V end })
+
+    -- CRAFTING & XP TAB
+    TabCrafting:Section({ Title = "Crafting" })
+    UI_Elements.Toggles.AutoRecipe = TabCrafting:Toggle({ Title = "Auto Claim Recipes", Value = false, Callback = function(V) Toggles.AutoRecipe = V end })
+    UI_Elements.Toggles.AutoCraft = TabCrafting:Toggle({ Title = "Smart Auto Craft", Value = false, Callback = function(V) Toggles.AutoCraft = V end })
+    
+    TabCrafting:Section({ Title = "Smart XP Transfer System" })
+    local InventorySlimeMap = {}
+    local TargetDrop = TabCrafting:Dropdown({ Title = "Target Slime (Receives XP)", Values = {"None"}, Value = "None", Callback = function(v) SelectedTargetUid = InventorySlimeMap[v] end })
+    local SacrificeDrop = TabCrafting:Dropdown({ Title = "Sacrifice Slime (Gets Destroyed)", Values = {"None"}, Value = "None", Callback = function(v) SelectedSacrificeUid = InventorySlimeMap[v] end })
+
+    local function refreshXpLists()
+        local inv = Modules.DataServiceClient:get("inventory") or {}
+        local options = {}
+        InventorySlimeMap = {}
+        for uid, data in pairs(inv) do
+            if type(data) == "table" and data.id then
+                local sName = SlimeNames[data.id] or data.id
+                local lvl = data.level or 1
+                local displayLabel = string.format("%s [Lv.%s] (%s)", sName, lvl, string.sub(uid, 1, 4))
+                table.insert(options, displayLabel)
+                InventorySlimeMap[displayLabel] = uid
+            end
+        end
+        if #options == 0 then table.insert(options, "No Valid Slimes") end
+        TargetDrop:Refresh(options)
+        SacrificeDrop:Refresh(options)
+    end
+
+    TabCrafting:Button({ Title = "🔄 Refresh Slime Inventory", Callback = refreshXpLists })
+    UI_Elements.Toggles.AutoXpTransfer = TabCrafting:Toggle({ Title = "Auto Transfer XP", Desc = "Continuously transfers XP from sacrifice to target", Value = false, Callback = function(V) Toggles.AutoXpTransfer = V end })
+
+    TabCrafting:Section({ Title = "Code Redeemer" })
+    UI_Elements.Toggles.AutoRedeemCode = TabCrafting:Toggle({ Title = "Auto Redeem Known Codes", Value = false, Callback = function(V) Toggles.AutoRedeemCode = V end })
+    local customCode = ""
+    TabCrafting:Input({ Title = "Redeem Custom Code", PlaceholderText = "Enter code...", Callback = function(v) customCode = v end })
+    TabCrafting:Button({ Title = "Redeem Entered Code", Callback = function() if customCode ~= "" then pcall(function() Remotes.Code:InvokeServer("redeem", customCode) end); WindUI:Notify({Title="Sent", Content="Attempted to redeem.", Duration=2}) end end })
+
+    -- TELEPORT TAB
+    TabTeleport:Section({ Title = "Zone Selector & Teleport" })
+    local SelectedZone = "1"
+    local ZoneDropdown = TabTeleport:Dropdown({ Title = "Select Map / Zone", Values = getAvailableZonesList(), Value = "1", Callback = function(v) SelectedZone = v end })
+    TabTeleport:Button({ Title = "Refresh Zone List", Callback = function() ZoneDropdown:Refresh(getAvailableZonesList()) end })
+    TabTeleport:Button({ Title = "Tp to the zone", Callback = function()
+        local num = tonumber(SelectedZone)
+        if num then
+            local cf = getZoneCFrame(num)
+            if cf and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = cf
+            end
+        end
+    end })
+    TabTeleport:Section({ Title = "Automation & Miscellaneous" })
+    UI_Elements.Toggles.AutoArea = TabTeleport:Toggle({ Title = "Auto Teleport to Max Area", Value = false, Callback = function(V) Toggles.AutoArea = V end })
+    TabTeleport:Button({ Title = "Teleport to Spawn", Callback = function()
+        local spawn = workspace:FindFirstChildWhichIsA("SpawnLocation")
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and spawn then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = spawn.CFrame + Vector3.new(0,5,0)
+        end
+    end })
+
+    -- VISUALS TAB
+    TabVisuals:Section({ Title = "Enemy ESP" })
+    UI_Elements.Toggles.EnemyInfoTags = TabVisuals:Toggle({ Title = "Enemy Info Tags (Shows exact HP)", Value = false, Callback = function(V) Toggles.EnemyInfoTags = V end })
+    UI_Elements.Toggles.EnemyHighlights = TabVisuals:Toggle({ Title = "Enemy Highlights", Value = false, Callback = function(V) Toggles.EnemyHighlights = V end })
+    TabVisuals:Section({ Title = "Enemy Showcase (Client-Side Only)" })
+    TabVisuals:Dropdown({ Title = "Select Enemy to Spawn", Values = ShowcaseData.Options, Value = ShowcaseData.Options[1], Callback = function(v) SelectedShowcaseEnemy = v end })
+    TabVisuals:Button({ Title = "Spawn Selected Enemy", Callback = function() spawnShowcase(SelectedShowcaseEnemy) end })
+    TabVisuals:Button({ Title = "Clear Spawned Enemies", Callback = function()
+        local f = Workspace:FindFirstChild("DuckyShowcaseFolder")
+        if f then f:Destroy() ShowcaseData.SpawnPos = 0 end
+    end })
+    UI_Elements.Toggles.FakeDamageShowcase = TabVisuals:Toggle({ Title = "Fake Damage Spawned Enemy", Value = false, Callback = function(V) Toggles.FakeDamageShowcase = V end })
+    UI_Elements.Toggles.FakeAttackShowcase = TabVisuals:Toggle({ Title = "Fake Enemy Attack Visuals", Value = false, Callback = function(V) Toggles.FakeAttackShowcase = V end })
+
+    -- PLAYER TAB
+    TabPlayer:Section({ Title = "Character Modifiers" })
+    UI_Elements.Toggles.Noclip = TabPlayer:Toggle({ Title = "Noclip", Value = false, Callback = function(V) Toggles.Noclip = V end })
+    UI_Elements.Toggles.InfiniteJump = TabPlayer:Toggle({ Title = "Infinite Jump", Value = false, Callback = function(V) Toggles.InfiniteJump = V end })
+    UI_Elements.Toggles.AntiRagdoll = TabPlayer:Toggle({ Title = "Anti Ragdoll", Value = false, Callback = function(V) Toggles.AntiRagdoll = V end })
+    UI_Elements.Sliders.WalkSpeed = TabPlayer:Slider({ Title = "Walk Speed", Step = 1, Value = {Min = 16, Max = 250, Default = Settings.WalkSpeed}, Callback = function(V) Settings.WalkSpeed = V end })
+    UI_Elements.Sliders.JumpPower = TabPlayer:Slider({ Title = "Jump Power", Step = 1, Value = {Min = 50, Max = 500, Default = Settings.JumpPower}, Callback = function(V) Settings.JumpPower = V end })
+
+    -- WEBHOOK TAB
+    TabWebhook:Section({ Title = "Status" })
+    local WebhookRareLabel = TabWebhook:Paragraph({ Title = "⭐ Last Rare: None", Desc = "" })
+    local WebhookRollLabel = TabWebhook:Paragraph({ Title = "🔢 Total Rolls: 0", Desc = "" })
+
+    TabWebhook:Section({ Title = "Controls" })
+    UI_Elements.Toggles.WebhookEnabled = TabWebhook:Toggle({ Title = "Enable Rare Roll Webhook", Value = false, Callback = function(V)
+        Toggles.WebhookEnabled = V
+        WindUI:Notify({ Title = V and "Webhook ON" or "Webhook OFF", Content = V and ("Firing for 1/" .. formatNumber(Settings.MinRarity) .. "+ rolls") or "Webhook disabled.", Duration = 3 })
+    end })
+    UI_Elements.Inputs.WebhookUrl = TabWebhook:Input({ Title = "Webhook URL", PlaceholderText = "Paste Discord webhook URL...", Callback = function(Text) Settings.WebhookUrl = Text end })
+    UI_Elements.Inputs.DiscordId = TabWebhook:Input({ Title = "Ping Discord ID", PlaceholderText = "e.g. 971748253022437426", Callback = function(Text) Settings.DiscordId = Text end })
+    UI_Elements.Inputs.MinRarity = TabWebhook:Input({ Title = "Minimum Rarity to Send", PlaceholderText = "e.g. 1000000", Callback = function(Text)
+        local num = tonumber(Text)
+        if num then Settings.MinRarity = num end
+    end })
+
+    TabWebhook:Section({ Title = "Debug" })
+    TabWebhook:Button({ Title = "Send Test Webhook", Callback = function()
+        if Settings.WebhookUrl == "" then
+            WindUI:Notify({ Title = "No URL!", Content = "Enter a webhook URL first.", Duration = 3 })
+            return
+        end
+        local ping = Settings.DiscordId ~= "" and ("<@"..Settings.DiscordId..">") or ""
+        sendWebhook(Settings.WebhookUrl, {
+            content = ping,
+            embeds = {{
+                title = "Rare Roll!",
+                color = 0x2B2D31,
+                description = string.format(
                     "**%s**\n\n**Rarity**\n%s\n\n**Total Rolls**\n%s\n\n**Player**\n%s\n\n**Zone**\n%s\n\n**Uptime**\n%s",
                     "TEST SLIME", "1 / 9.99M", formatNumber(totalRollCount),
                     LocalPlayer.Name, "Max", getUptimeString()
@@ -1220,8 +1421,8 @@ local function loadMainHub()
 
     task.spawn(function()
         while true do
-            WebhookRollLabel:Set({ Title = "🔢 Total Rolls: " .. formatNumber(totalRollCount) })
-            WebhookRareLabel:Set({ Title = "⭐ Last Rare: " .. LastRareText })
+            WebhookRollLabel:Set({ Title = "🔢 Total Rolls: " .. formatNumber(totalRollCount), Desc = "" })
+            WebhookRareLabel:Set({ Title = "⭐ Last Rare: " .. LastRareText, Desc = "" })
             task.wait(1)
         end
     end)
@@ -1285,22 +1486,5 @@ local function loadMainHub()
     end
 end
 
--- ==========================================
--- NEW FEATURE LOOPS
--- ==========================================
-loop("AutoXpTransfer", function()
-    if SelectedTargetUid and SelectedSacrificeUid and SelectedTargetUid ~= SelectedSacrificeUid then
-        pcall(function() Remotes.XpTransfer:InvokeServer("requestTransferXp", SelectedTargetUid, SelectedSacrificeUid) end)
-        task.wait(0.5) 
-    end
-end, 2)
-
-local knownCodes = {"fruitfeast", "release"}
-loop("AutoRedeemCode", function()
-    for _, code in ipairs(knownCodes) do
-        pcall(function() Remotes.Code:InvokeServer("redeem", code) end)
-        task.wait(1)
-    end
-end, 300)
 
 loadMainHub()
