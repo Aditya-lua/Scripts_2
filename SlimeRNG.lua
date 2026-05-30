@@ -1485,6 +1485,3 @@ local function loadMainHub()
         end)
     end
 end
-
-
-loadMainHub()
