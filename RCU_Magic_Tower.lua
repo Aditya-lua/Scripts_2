@@ -1,4 +1,4 @@
--- Ducky Hub | RCU Magic Tower Event v21.2
+-- Ducky Hub | RCU Magic Tower Event 
 -- Native Knit Update: Bypasses all obfuscated RE/RF folders and uses exposed API.
 -- Added: Multi-Select Mobs, Flame Machine, 4-Tier RNG Wheel, RNG Minigame Egg.
 
