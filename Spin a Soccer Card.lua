@@ -1,8 +1,5 @@
-﻿-- // SSC Elite Farm
--- // Dev :- Aditya
--- // Owner :- Cammy
-
-
+--- Versus Airlines | Spin a Soccer Card
+--- Developer:- Aditya | Owner :- Cammy
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
