@@ -1,26 +1,24 @@
---- Versus Airlines | Spin a Soccer Card
---- Developer:- Aditya | Owner :- Cammy
+-- // SSC Elite Farm
+-- // Dev :- Aditya
+-- // Owner :- Cammy
+
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 local MPS = game:GetService("MarketplaceService")
 local Workspace = game:GetService("Workspace")
-
+local RunService = game:GetService("RunService")
 
 local client = Players.LocalPlayer
-
 
 pcall(function()
     loadstring(game:HttpGet("https://raw.githubusercontent.com/SenhorLDS/ProjectLDSHUB/refs/heads/main/Anti%20AFK"))()
 end)
 
-
 local gm = getrawmetatable(game)
 setreadonly(gm, false)
 local oldNamecall = gm.__namecall
-
 
 gm.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
@@ -34,7 +32,6 @@ gm.__namecall = newcclosure(function(self, ...)
     return oldNamecall(self, ...)
 end)
 setreadonly(gm, true)
-
 
 task.spawn(function()
     while task.wait(0.5) do
@@ -67,21 +64,13 @@ task.spawn(function()
     end
 end)
 
-
 local Library = loadstring(game:HttpGet("https://versusairlines.top/scripts/NewLibrary.lua"))()
 local Setup = Library:Setup({
     Location = CoreGui,
     OpenCloseLocation = "Bottom Left"
 })
 
-
--- Resolves the target remote instance by evaluating the internal network module.
--- Parameters:
---   name (string): The identifier of the remote.
--- Returns:
---   Instance: The remote event object if found.
 local Networker = require(RS.Source.Shared.Networker)
-
 
 local function getRemote(name)
     local ok, r = pcall(function() return Networker.get_remote(name) end)
@@ -90,19 +79,12 @@ local function getRemote(name)
     return rf and rf:FindFirstChild(name) or nil
 end
 
-
--- Resolves the target remote function instance by evaluating the internal network module.
--- Parameters:
---   name (string): The identifier of the remote function.
--- Returns:
---   Instance: The remote function object if found.
 local function getFunction(name)
     local ok, r = pcall(function() return Networker.get_remotefunction(name) end)
     if ok and r then return r end
     local rf = RS:FindFirstChild("Remotes")
     return rf and rf:FindFirstChild(name) or nil
 end
-
 
 local remotes = {
     OpenPack          = getRemote("OpenPack"),
@@ -123,22 +105,18 @@ local remotes = {
     PackSettings      = getRemote("PackSettings"),
 }
 
-
 local funcs = {
     SpinWheelData   = getFunction("SpinWheelData"),
     TournamentState = getFunction("TournamentState"),
 }
-
 
 local PackConfig    = require(RS.Source.Shared.Configs.PackConfig)
 local CardConfig    = require(RS.Source.Shared.Configs.CardConfig)
 local RebirthConfig = require(RS.Source.Shared.Configs.RebirthConfig)
 local PlayerStore   = require(RS.Source.Shared.State.PlayerStore)
 
-
 local WeatherStore
 pcall(function() WeatherStore = require(RS.Source.Shared.State.WeatherStore) end)
-
 
 local stats = {
     opened = 0, bought = 0, sold = 0, 
@@ -146,13 +124,11 @@ local stats = {
     codesRedeemed = false
 }
 
-
 local function getPlayerData()
     local ok, state = pcall(function() return PlayerStore() end)
     if not ok or not state or not state.players then return nil end
     return state.players[tostring(client.UserId)]
 end
-
 
 local function getInventory() local d = getPlayerData() return d and d.inventory or {} end
 local function getSlots() local d = getPlayerData() return d and d.slots or {} end
@@ -160,11 +136,6 @@ local function getCash() local d = getPlayerData() return d and d.cash or 0 end
 local function getGems() local d = getPlayerData() return d and d.gems or 0 end
 local function getRebirthLevel() local d = getPlayerData() return d and d.rebirth or 0 end
 
-
--- Evaluates the local WeatherStore to identify active weather conditions.
--- Validates the end time of each weather event against the current server time to ensure accuracy.
--- Returns:
---   string: A comma-separated list of active weather names, or a default fallback string.
 local function getActiveWeathers()
     if WeatherStore then
         local ok, state = pcall(function() return WeatherStore() end)
@@ -182,7 +153,6 @@ local function getActiveWeathers()
     return "None"
 end
 
-
 local function formatCash(n)
     n = tonumber(n) or 0
     if n >= 1e12 then return string.format("%.2fT", n / 1e12)
@@ -192,7 +162,6 @@ local function formatCash(n)
     end
     return tostring(math.floor(n))
 end
-
 
 local function getPackList()
     local list = {}
@@ -206,6 +175,8 @@ local function getPackList()
     return list
 end
 
+local pList = getPackList()
+if #pList == 0 then pList = { "Bronze" } end
 
 local rarityOrder = {
     ["Bronze"] = 1, ["Silver"] = 2, ["Gold"] = 3, ["Legendary"] = 4, ["Mythic"] = 5, 
@@ -216,19 +187,12 @@ local rarityOrder = {
     ["Aether"] = 22, ["Player of the Month"] = 23, ["Exclusive"] = 24, ["Secret Exclusive"] = 25,
 }
 
-
 local rarityList = {}
 for r in pairs(rarityOrder) do table.insert(rarityList, r) end
 table.sort(rarityList, function(a, b) return (rarityOrder[a] or 99) < (rarityOrder[b] or 99) end)
 
-
 local function getRarityLevel(rarity) return rarityOrder[rarity] or 0 end
 
-
--- Computes the player's eligibility to perform a rebirth action based on configuration constants.
--- Verifies current cash and gem balances against the requirements for the next rebirth level.
--- Returns:
---   boolean: Represents whether the player meets all progression requirements.
 local function canRebirth()
     local ok, result = pcall(function() return RebirthConfig and RebirthConfig.GetMaxRebirth and RebirthConfig.GetMaxRebirth() end)
     local maxR = (ok and result) or 999
@@ -252,12 +216,6 @@ local function canRebirth()
     return true
 end
 
-
--- Analyzes the local player's inventory to identify and equip cards with the highest base income.
--- Sorts available cards by income rate and iterates up to the maximum available slot count.
--- Dispatches equipment remotes for each identified superior card.
--- Returns:
---   boolean: Indicates whether at least one new card was equipped during the operation.
 local SlotController = nil
 local function equipBest()
     if not SlotController then
@@ -272,7 +230,6 @@ local function equipBest()
     local inv, slots = getInventory(), getSlots()
     if not inv or not slots then return false end
 
-
     local candidates = {}
     for _, c in ipairs(inv) do
         if c and c.id and c.uuid and c.id ~= "LocalCard" and c.id ~= "OwnerVulnone" and not c.throneCard and not c.locked then
@@ -282,11 +239,9 @@ local function equipBest()
     end
     table.sort(candidates, function(a, b) return a.income > b.income end)
 
-
     local slotCount = 0
     for _ in pairs(slots) do slotCount = slotCount + 1 end
     if slotCount == 0 then slotCount = 6 end
-
 
     local equipped = 0
     for i = 1, math.min(#candidates, slotCount) do
@@ -308,26 +263,17 @@ local function equipBest()
     return equipped > 0
 end
 
-
 getgenv().WebhookURL = ""
 getgenv().WebhookPingID = ""
 
-
 local req = (syn and syn.request) or (http and http.request) or http_request or request
 
-
--- Assembles and transmits a JSON-encoded payload to the configured external webhook URL.
--- Integrates user ping identifiers into the message content if provided in the environment.
--- Parameters:
---   data (table): The structured payload containing embeds and message parameters.
 local function dispatchWebhook(data)
     local url = getgenv().WebhookURL or ""
     if url == "" or not req then return end
 
-
     local ping = getgenv().WebhookPingID or ""
     if ping ~= "" then data.content = "<@" .. ping .. ">" end
-
 
     pcall(function()
         req({
@@ -339,18 +285,15 @@ local function dispatchWebhook(data)
     end)
 end
 
-
 if remotes.OpenPack then
     remotes.OpenPack.OnClientEvent:Connect(function(img, cData, color, uuid, chances, isNew, pName)
         if img == "x" or type(cData) ~= "table" then return end
         if not Library.Flags["WebhookRareRolls"] then return end
 
-
         local tFlag = Library.Flags["WebhookRarityThresh"]
-        local tName = type(tFlag) == "table" and tFlag[1] or tostring(tFlag or "Mythic")
+        local tName = type(tFlag) == "string" and tFlag or (type(tFlag) == "table" and tFlag[1] or "Mythic")
         local tLvl = getRarityLevel(tName)
         local cLvl = getRarityLevel(cData.Rarity or "Common")
-
 
         if cLvl >= tLvl then
             local thumb = ""
@@ -370,31 +313,29 @@ if remotes.OpenPack then
                 end)
             end
 
-
             local cfg = CardConfig.Cards[cData.id]
             local income = cfg and cfg.IncomeRate or cData.IncomeRate or 0
             
             dispatchWebhook({
                 embeds = {{
-                    title = "\240\159\142\137 Rare Card Rolled!",
-                    description = "You just unboxed a high-tier card!",
+                    title = "[*] Rare Card Rolled!",
+                    description = "A high-tier card has been acquired.",
                     color = 16766720,
                     thumbnail = { url = thumb },
                     fields = {
-                        { name = "\240\159\131\143 Card Name", value = cData.DisplayName or cData.Name, inline = false },
-                        { name = "\226\173\144 Rarity", value = cData.Rarity or "Unknown", inline = false },
-                        { name = "\240\159\147\166 Pack", value = pName or "Unknown", inline = false },
-                        { name = "\240\159\146\184 Income", value = "$" .. formatCash(income) .. "/s", inline = false },
-                        { name = "\226\156\168 New Discovery", value = isNew and "Yes" or "No", inline = false },
-                        { name = "\240\159\145\164 Player", value = "||" .. client.Name .. "||", inline = false },
+                        { name = "Card Name", value = cData.DisplayName or cData.Name, inline = false },
+                        { name = "Rarity", value = cData.Rarity or "Unknown", inline = false },
+                        { name = "Pack", value = pName or "Unknown", inline = false },
+                        { name = "Income", value = "$" .. formatCash(income) .. "/s", inline = false },
+                        { name = "New Discovery", value = isNew and "Yes" or "No", inline = false },
+                        { name = "Player", value = "||" .. client.Name .. "||", inline = false },
                     },
-                    footer = { text = "SSC Elite Farm \226\128\162 " .. os.date("%H:%M:%S") }
+                    footer = { text = "SSC Elite Farm - " .. os.date("%H:%M:%S") }
                 }}
             })
         end
     end)
 end
-
 
 local pIdx, bIdx = 1, 1
 task.spawn(function()
@@ -405,12 +346,10 @@ task.spawn(function()
                 local flag = Library.Flags["SelectedPacks"]
                 local selected = type(flag) == "table" and flag or { tostring(flag or "Bronze") }
 
-
                 if #selected > 0 then
                     if pIdx > #selected then pIdx = 1 end
                     local name = selected[pIdx]
                     pIdx = pIdx + 1
-
 
                     local pData = getPlayerData()
                     if pData and pData.packs and (pData.packs[name] or 0) > 0 then
@@ -424,9 +363,7 @@ task.spawn(function()
     end
 end)
 
-
 local tmr = { col = 0, sell = 0, del = 0, buy = 0, gem = 0, reb = 0, eq = 0, idx = 0, spin = 0, daily = 0, off = 0, tourn = 0, pot = 0, wh = os.clock() }
-
 
 task.spawn(function()
     while task.wait(0.2) do
@@ -434,31 +371,30 @@ task.spawn(function()
         _G.DisablePopups = Library.Flags["DisablePopups"]
         _G.DisableNotifs = Library.Flags["DisableNotifs"]
 
-
         if Library.Flags["WebhookStats"] then
             local delay = Library.Flags["WebhookStatsDelay"] or 15
             if (now - tmr.wh) >= (delay * 60) then
                 tmr.wh = now
                 dispatchWebhook({
                     embeds = {{
-                        title = "\240\159\147\138 SSC Farm Analytics",
-                        description = "\240\159\146\176 **Cash:** $" .. formatCash(getCash()) .. "\n" ..
-                                      "\240\159\146\142 **Gems:** " .. formatCash(getGems()) .. "\n" ..
-                                      "\240\159\148\132 **Rebirth Level:** " .. getRebirthLevel() .. "\n" ..
-                                      "\240\159\147\166 **Packs Opened:** " .. formatCash(stats.opened) .. "\n" ..
-                                      "\240\159\140\164\239\184\143 **Active Weather:** " .. getActiveWeathers() .. "\n" ..
-                                      "\226\156\168 **Session Rebirths:** " .. stats.rebirths,
+                        title = "[+] SSC Farm Analytics",
+                        description = "[$] **Cash:** $" .. formatCash(getCash()) .. "\n" ..
+                                      "[*] **Gems:** " .. formatCash(getGems()) .. "\n" ..
+                                      "[#] **Rebirth Level:** " .. getRebirthLevel() .. "\n" ..
+                                      "[>] **Packs Opened:** " .. formatCash(stats.opened) .. "\n" ..
+                                      "[?] **Active Weather:** " .. getActiveWeathers() .. "\n" ..
+                                      "[!] **Session Rebirths:** " .. stats.rebirths,
                         color = 3447003,
-                        footer = { text = "SSC Elite Farm \226\128\162 User: " .. client.Name }
+                        footer = { text = "SSC Elite Farm - User: " .. client.Name }
                     }}
                 })
             end
         end
 
-
         if Library.Flags["AutoIndex"] and (now - tmr.idx) >= 15 then
             tmr.idx = now; pcall(function() remotes.ClaimAllIndexGems:FireServer() end)
         end
+        
         if Library.Flags["AutoSpin"] and (now - tmr.spin) >= 8 then
             tmr.spin = now
             pcall(function()
@@ -471,9 +407,11 @@ task.spawn(function()
                 end
             end)
         end
+        
         if Library.Flags["AutoDaily"] and (now - tmr.daily) >= 60 then
             tmr.daily = now; pcall(function() remotes.DailyReward:FireServer("claim") end)
         end
+        
         if Library.Flags["AutoOffline"] and (now - tmr.off) >= 60 then
             tmr.off = now; pcall(function() remotes.OfflineReward:FireServer("claim_normal") end)
         end
@@ -482,16 +420,17 @@ task.spawn(function()
             tmr.pot = now
             pcall(function()
                 local flag = Library.Flags["TargetPotion"]
-                local pName = type(flag) == "table" and flag[1] or tostring(flag or "")
-                if pName ~= "" and remotes.UsePotion then
-                    remotes.UsePotion:FireServer(pName)
+                local selected = type(flag) == "table" and flag or { tostring(flag or "") }
+                
+                for _, pName in ipairs(selected) do
+                    if pName ~= "" and remotes.UsePotion then
+                        remotes.UsePotion:FireServer(pName)
+                        task.wait(0.5) 
+                    end
                 end
             end)
         end
         
-        -- Fetches the latest code list from the designated URL and matches valid strings.
-        -- Iterates through the sanitized codes and transmits them to the redemption endpoint.
-        -- Yields between requests to align with server processing rates.
         if Library.Flags["AutoRedeemCodes"] and not stats.codesRedeemed then
             stats.codesRedeemed = true
             task.spawn(function()
@@ -509,18 +448,16 @@ task.spawn(function()
                         pcall(function() remotes.RedeemCode:FireServer(string.lower(c)) end)
                         task.wait(1.5)
                     end
-                    Library:Notify({ Title = "Codes", Text = "Redeemed " .. #codes .. " codes.", Duration = 5 })
+                    pcall(function() Library:createDisplayMessage("Codes", "Redeemed " .. #codes .. " codes.", {{text="OK"}}, "info") end)
                 end
             end)
         end
-
 
         if (Library.Flags["AutoTournament"] or Library.Flags["AutoTourneyEquip"]) and (now - tmr.tourn) >= 15 then
             tmr.tourn = now
             pcall(function()
                 local pData = getPlayerData()
                 local isQueued = pData and pData.tournament and pData.tournament.queue ~= nil
-
 
                 if funcs.TournamentState and remotes.Tournament then
                     local ok, tState = pcall(function() return funcs.TournamentState:InvokeServer() end)
@@ -537,7 +474,6 @@ task.spawn(function()
             end)
         end
 
-
         if Library.Flags["AutoCollect"] and (now - tmr.col) >= (Library.Flags["CollectDelay"] or 3) then
             tmr.col = now
             pcall(function()
@@ -551,14 +487,12 @@ task.spawn(function()
             end)
         end
 
-
         if Library.Flags["AutoSell"] and (now - tmr.sell) >= 8 then
             tmr.sell = now
             pcall(function()
                 local flag = Library.Flags["SellThreshold"]
-                local tName = type(flag) == "table" and flag[1] or tostring(flag or "Silver")
+                local tName = type(flag) == "string" and flag or (type(flag) == "table" and flag[1] or "Silver")
                 local tLvl = getRarityLevel(tName)
-
 
                 local toSell = {}
                 for _, c in ipairs(getInventory()) do
@@ -576,7 +510,6 @@ task.spawn(function()
             end)
         end
 
-
         if Library.Flags["AutoDeletePacks"] and (now - tmr.del) >= 10 then
             tmr.del = now
             pcall(function()
@@ -588,11 +521,9 @@ task.spawn(function()
             end)
         end
 
-
         if Library.Flags["AutoEquip"] and (now - tmr.eq) >= 8 then
             tmr.eq = now; pcall(equipBest)
         end
-
 
         if Library.Flags["AutoBuyPacks"] and (now - tmr.buy) >= (Library.Flags["BuyDelay"] or 2) then
             tmr.buy = now
@@ -600,12 +531,10 @@ task.spawn(function()
                 local flag = Library.Flags["SelectedBuyPacks"]
                 local sel = type(flag) == "table" and flag or { tostring(flag or "Bronze") }
 
-
                 if #sel > 0 then
                     if bIdx > #sel then bIdx = 1 end
                     local name = sel[bIdx]
                     bIdx = bIdx + 1
-
 
                     local pd = PackConfig.Packs[name]
                     if pd and (pd.Price or 0) > 0 and getCash() >= pd.Price then
@@ -616,14 +545,13 @@ task.spawn(function()
             end)
         end
 
-
         if Library.Flags["AutoGemShop"] and (now - tmr.gem) >= 10 then
             tmr.gem = now
             pcall(function()
-                local val = Library.Flags["GemShopItemUI"]
+                local flag = Library.Flags["GemShopItemUI"]
+                local key = type(flag) == "string" and flag or (type(flag) == "table" and flag[1] or "Lucky Item")
                 local map = { ["Lucky Item"] = "lucky", ["Auto Equip Best"] = "fixed_1", ["Auto Skip"] = "fixed_2", ["Inventory +500"] = "fixed_3", ["Scarlet Item"] = "scarlet" }
-                local id = map[type(val) == "table" and val[1] or val] or "lucky"
-
+                local id = map[key] or "lucky"
 
                 if getGems() >= (Library.Flags["MinGems"] or 100) then
                     remotes.BuyGemShopItem:FireServer(id)
@@ -631,7 +559,6 @@ task.spawn(function()
                 end
             end)
         end
-
 
         local rbCD = Library.Flags["ForceRebirth"] and 30 or 15
         if Library.Flags["AutoRebirth"] and (now - tmr.reb) >= rbCD then
@@ -650,27 +577,16 @@ task.spawn(function()
     end
 end)
 
+local TabFarm = Setup:CreateSection("Farm & Packs")
+TabFarm:createLabel({ Name = "Plot Automation", Special = true })
+TabFarm:createToggle({ Name = "Auto Collect Cash", flagName = "AutoCollect", Flag = false, Callback = function() end })
+TabFarm:createSlider({ Name = "Collect Delay (Seconds)", flagName = "CollectDelay", value = 3, minValue = 1, maxValue = 60, Callback = function() end })
+TabFarm:createToggle({ Name = "Auto Equip Best Cards", flagName = "AutoEquip", Flag = false, Callback = function() end })
+TabFarm:createToggle({ Name = "Auto Sell Cards", flagName = "AutoSell", Flag = false, Callback = function() end })
+TabFarm:createDropdown({ Name = "Sell Below Rarity:", flagName = "SellThreshold", Flag = { "Silver" }, List = rarityList, multi = false, Callback = function() end })
 
-local TabFarm    = Setup:CreateTab("Farm & Packs")
-local TabPassive = Setup:CreateTab("Passives & Rebirth")
-local TabWebhook = Setup:CreateTab("Webhooks")
-local TabMisc    = Setup:CreateTab("Misc & Settings")
-local TabStats   = Setup:CreateTab("Analytics")
-
-
-local pList = getPackList()
-
-
-TabFarm:CreateSection("Plot Automation")
-TabFarm:CreateToggle({ Name = "Auto Collect Cash", flagName = "AutoCollect", Flag = false, Callback = function() end })
-TabFarm:CreateSlider({ Name = "Collect Delay (Seconds)", flagName = "CollectDelay", value = 3, minValue = 1, maxValue = 60, Callback = function() end })
-TabFarm:CreateToggle({ Name = "Auto Equip Best Cards", flagName = "AutoEquip", Flag = false, Callback = function() end })
-TabFarm:CreateToggle({ Name = "Auto Sell Cards", flagName = "AutoSell", Flag = false, Callback = function() end })
-TabFarm:CreateDropdown({ Name = "Sell Below Rarity:", flagName = "SellThreshold", Flag = { "Silver" }, List = rarityList, multi = false, Callback = function() end })
-
-
-TabFarm:CreateSection("Pack Roller Configuration")
-TabFarm:CreateToggle({
+TabFarm:createLabel({ Name = "Pack Roller Configuration", Special = true })
+TabFarm:createToggle({
     Name = "Hide Native Roll Animation", 
     flagName = "HideAnim", Flag = false,
     Callback = function(v)
@@ -684,81 +600,73 @@ TabFarm:CreateToggle({
         end)
     end,
 })
-TabFarm:CreateToggle({ Name = "Custom Script Auto Open", flagName = "AutoOpenPacks", Flag = false, Callback = function() end })
+TabFarm:createToggle({ Name = "Custom Script Auto Open", flagName = "AutoOpenPacks", Flag = false, Callback = function() end })
 
+local packDropdown = TabFarm:createDropdown({ Name = "Select Packs to Open", flagName = "SelectedPacks", Flag = { pList[1] or "Bronze" }, List = pList, multi = true, Callback = function() end })
+TabFarm:createButton({ Name = "Select ALL Packs (To Open)", Callback = function() pcall(function() packDropdown:Set(pList) end) Library.Flags["SelectedPacks"] = pList pIdx = 1 end })
+TabFarm:createSlider({ Name = "Custom Pack Delay (0 = Instant)", flagName = "PackDelay", value = 0, minValue = 0, maxValue = 5, Callback = function() end })
 
-local packDropdown = TabFarm:CreateDropdown({ Name = "Select Packs to Open", flagName = "SelectedPacks", Flag = { pList[1] or "Bronze" }, List = pList, multi = true, Callback = function() end })
-TabFarm:CreateButton({ Name = "Select ALL Packs (To Open)", Callback = function() pcall(function() packDropdown:Set(pList) end) Library.Flags["SelectedPacks"] = pList pIdx = 1 end })
-TabFarm:CreateSlider({ Name = "Custom Pack Delay (0 = Instant)", flagName = "PackDelay", value = 0, minValue = 0, maxValue = 5, Callback = function() end })
+TabFarm:createLabel({ Name = "Shop & Store Automation", Special = true })
+TabFarm:createToggle({ Name = "Auto Buy Shop Packs", flagName = "AutoBuyPacks", Flag = false, Callback = function() end })
+local buyPackDropdown = TabFarm:createDropdown({ Name = "Select Packs to Buy", flagName = "SelectedBuyPacks", Flag = { pList[1] or "Bronze" }, List = pList, multi = true, Callback = function() end })
+TabFarm:createButton({ Name = "Select ALL Shop Packs", Callback = function() pcall(function() buyPackDropdown:Set(pList) end) Library.Flags["SelectedBuyPacks"] = pList bIdx = 1 end })
+TabFarm:createSlider({ Name = "Pack Buy Delay (Seconds)", flagName = "BuyDelay", value = 2, minValue = 1, maxValue = 30, Callback = function() end })
 
+TabFarm:createToggle({ Name = "Auto Buy Gem Shop", flagName = "AutoGemShop", Flag = false, Callback = function() end })
+TabFarm:createDropdown({ Name = "Target Gem Shop Item", flagName = "GemShopItemUI", Flag = { "Lucky Item" }, List = { "Lucky Item", "Auto Equip Best", "Auto Skip", "Inventory +500", "Scarlet Item" }, multi = false, Callback = function() end })
+TabFarm:createSlider({ Name = "Min Gems to Keep", flagName = "MinGems", value = 100, minValue = 0, maxValue = 10000, Callback = function() end })
 
-TabFarm:CreateSection("Shop & Store Automation")
-TabFarm:CreateToggle({ Name = "Auto Buy Shop Packs", flagName = "AutoBuyPacks", Flag = false, Callback = function() end })
-local buyPackDropdown = TabFarm:CreateDropdown({ Name = "Select Packs to Buy", flagName = "SelectedBuyPacks", Flag = { pList[1] or "Bronze" }, List = pList, multi = true, Callback = function() end })
-TabFarm:CreateButton({ Name = "Select ALL Shop Packs", Callback = function() pcall(function() buyPackDropdown:Set(pList) end) Library.Flags["SelectedBuyPacks"] = pList bIdx = 1 end })
-TabFarm:CreateSlider({ Name = "Pack Buy Delay (Seconds)", flagName = "BuyDelay", value = 2, minValue = 1, maxValue = 30, Callback = function() end })
+TabFarm:createLabel({ Name = "Inventory Cleanup", Special = true })
+TabFarm:createToggle({ Name = "Auto Delete Packs", flagName = "AutoDeletePacks", Flag = false, Callback = function() end })
+TabFarm:createDropdown({ Name = "Select Packs to Delete", flagName = "DeletePacksList", Flag = { pList[1] or "Bronze" }, List = pList, multi = true, Callback = function() end })
 
+local TabPassive = Setup:CreateSection("Passives & Rebirth")
+TabPassive:createLabel({ Name = "Silent Income Generators", Special = true })
+TabPassive:createToggle({ Name = "Auto Claim Index Gems", flagName = "AutoIndex", Flag = false, Callback = function() end })
+TabPassive:createToggle({ Name = "Auto Spin Wheel", flagName = "AutoSpin", Flag = false, Callback = function() end })
+TabPassive:createToggle({ Name = "Auto Daily Rewards", flagName = "AutoDaily", Flag = false, Callback = function() end })
+TabPassive:createToggle({ Name = "Auto Offline Rewards", flagName = "AutoOffline", Flag = false, Callback = function() end })
 
-TabFarm:CreateToggle({ Name = "Auto Buy Gem Shop", flagName = "AutoGemShop", Flag = false, Callback = function() end })
-TabFarm:CreateDropdown({ Name = "Target Gem Shop Item", flagName = "GemShopItemUI", Flag = { "Lucky Item" }, List = { "Lucky Item", "Auto Equip Best", "Auto Skip", "Inventory +500", "Scarlet Item" }, multi = false, Callback = function() end })
-TabFarm:CreateSlider({ Name = "Min Gems to Keep", flagName = "MinGems", value = 100, minValue = 0, maxValue = 10000, Callback = function() end })
+TabPassive:createLabel({ Name = "Consumables", Special = true })
+TabPassive:createToggle({ Name = "Auto Use Potion", flagName = "AutoUsePotion", Flag = false, Callback = function() end })
+TabPassive:createDropdown({ Name = "Select Potion", flagName = "TargetPotion", Flag = { "Snowstorm Potion" }, List = { "Snowstorm Potion", "Thunderstorm Potion", "Toxic Rain Potion", "Blood Moon Potion", "Solar Eclipse Potion" }, multi = true, Callback = function() end })
 
+TabPassive:createLabel({ Name = "Progression & One-Time", Special = true })
+TabPassive:createToggle({ Name = "Auto Redeem All Codes", flagName = "AutoRedeemCodes", Flag = false, Callback = function() end })
+TabPassive:createToggle({ Name = "Auto Rebirth", flagName = "AutoRebirth", Flag = false, Callback = function() end })
+TabPassive:createToggle({ Name = "Force Rebirth", flagName = "ForceRebirth", Flag = false, Callback = function() end })
 
-TabFarm:CreateSection("Inventory Cleanup")
-TabFarm:CreateToggle({ Name = "Auto Delete Packs", flagName = "AutoDeletePacks", Flag = false, Callback = function() end })
-TabFarm:CreateDropdown({ Name = "Select Packs to Delete", flagName = "DeletePacksList", Flag = { "Bronze" }, List = pList, multi = true, Callback = function() end })
+TabPassive:createLabel({ Name = "Tournament Automation", Special = true })
+TabPassive:createToggle({ Name = "Auto Tourney Equip", flagName = "AutoTourneyEquip", Flag = false, Callback = function() end })
+TabPassive:createToggle({ Name = "Auto Join Tournament", flagName = "AutoTournament", Flag = false, Callback = function() end })
 
+local TabWebhook = Setup:CreateSection("Webhooks")
+TabWebhook:createLabel({ Name = "Discord Integration", Special = true })
+TabWebhook:createInputBox({ Name = "Webhook URL", flagName = "WebhookURL", Flag = "", Callback = function(val) getgenv().WebhookURL = val end })
+TabWebhook:createInputBox({ Name = "Discord User ID", flagName = "WebhookPingID", Flag = "", Callback = function(val) getgenv().WebhookPingID = tostring(val):gsub("[^%d]", "") end })
+TabWebhook:createLabel({ Name = "Rare Card Tracker", Special = true })
+TabWebhook:createToggle({ Name = "Enable Rare Rolls Webhook", flagName = "WebhookRareRolls", Flag = false, Callback = function() end })
+TabWebhook:createDropdown({ Name = "Minimum Rarity to Log", flagName = "WebhookRarityThresh", Flag = { "Mythic" }, List = rarityList, multi = false, Callback = function() end })
+TabWebhook:createLabel({ Name = "Automated Analytics", Special = true })
+TabWebhook:createToggle({ Name = "Enable Stats Webhook", flagName = "WebhookStats", Flag = false, Callback = function() end })
+TabWebhook:createSlider({ Name = "Stats Update Frequency (Mins)", flagName = "WebhookStatsDelay", value = 15, minValue = 1, maxValue = 60, Callback = function() end })
+TabWebhook:createButton({ Name = "Send Test Webhook", Callback = function() pcall(function() Library:createDisplayMessage("Test", "Webhook fired.", {{text="OK"}}, "info") end) end })
 
-TabPassive:CreateSection("Silent Income Generators")
-TabPassive:CreateToggle({ Name = "Auto Claim Index Gems", flagName = "AutoIndex", Flag = false, Callback = function() end })
-TabPassive:CreateToggle({ Name = "Auto Spin Wheel", flagName = "AutoSpin", Flag = false, Callback = function() end })
-TabPassive:CreateToggle({ Name = "Auto Daily Rewards", flagName = "AutoDaily", Flag = false, Callback = function() end })
-TabPassive:CreateToggle({ Name = "Auto Offline Rewards", flagName = "AutoOffline", Flag = false, Callback = function() end })
-
-
-TabPassive:CreateSection("Consumables")
-TabPassive:CreateToggle({ Name = "Auto Use Potion", flagName = "AutoUsePotion", Flag = false, Callback = function() end })
-TabPassive:CreateDropdown({ Name = "Select Potion", flagName = "TargetPotion", Flag = { "Snowstorm Potion" }, List = { "Snowstorm Potion", "Thunderstorm Potion", "Toxic Rain Potion", "Blood Moon Potion", "Solar Eclipse Potion" }, multi = false, Callback = function() end })
-
-
-TabPassive:CreateSection("Progression & One-Time")
-TabPassive:CreateToggle({ Name = "Auto Redeem All Codes", flagName = "AutoRedeemCodes", Flag = false, Callback = function() end })
-TabPassive:CreateToggle({ Name = "Auto Rebirth", flagName = "AutoRebirth", Flag = false, Callback = function() end })
-TabPassive:CreateToggle({ Name = "Force Rebirth (\226\154\160\239\184\143 Warning)", flagName = "ForceRebirth", Flag = false, Callback = function() end })
-
-
-TabPassive:CreateSection("Tournament Automation")
-TabPassive:CreateToggle({ Name = "Auto Tourney Equip", flagName = "AutoTourneyEquip", Flag = false, Callback = function() end })
-TabPassive:CreateToggle({ Name = "Auto Join Tournament", flagName = "AutoTournament", Flag = false, Callback = function() end })
-
-
-TabWebhook:CreateSection("Discord Integration")
-TabWebhook:CreateInput({ Name = "Webhook URL", flagName = "WebhookURL", Flag = "", Callback = function(val) getgenv().WebhookURL = val end })
-TabWebhook:CreateInput({ Name = "Discord User ID", flagName = "WebhookPingID", Flag = "", Callback = function(val) getgenv().WebhookPingID = tostring(val):gsub("[^%d]", "") end })
-TabWebhook:CreateSection("Rare Card Tracker")
-TabWebhook:CreateToggle({ Name = "Enable Rare Rolls Webhook", flagName = "WebhookRareRolls", Flag = false, Callback = function() end })
-TabWebhook:CreateDropdown({ Name = "Minimum Rarity to Log", flagName = "WebhookRarityThresh", Flag = { "Mythic" }, List = rarityList, multi = false, Callback = function() end })
-TabWebhook:CreateSection("Automated Analytics")
-TabWebhook:CreateToggle({ Name = "Enable Stats Webhook", flagName = "WebhookStats", Flag = false, Callback = function() end })
-TabWebhook:CreateSlider({ Name = "Stats Update Frequency (Mins)", flagName = "WebhookStatsDelay", value = 15, minValue = 1, maxValue = 60, Callback = function() end })
-TabWebhook:CreateButton({ Name = "\226\156\133 Send Test Webhook", Callback = function() Library:Notify({ Title = "Test", Text = "Webhook fired.", Duration = 5 }) end })
-
-
-TabMisc:CreateSection("Game Modifications")
-TabMisc:CreateToggle({ Name = "Disable Game Popups", flagName = "DisablePopups", Flag = false, Callback = function() end })
-TabMisc:CreateToggle({ Name = "Disable Game Notifications", flagName = "DisableNotifs", Flag = false, Callback = function() end })
-TabMisc:CreateToggle({ 
+local TabMisc = Setup:CreateSection("Misc & Settings")
+TabMisc:createLabel({ Name = "Game Modifications", Special = true })
+TabMisc:createToggle({ Name = "Disable Game Popups", flagName = "DisablePopups", Flag = false, Callback = function() end })
+TabMisc:createToggle({ Name = "Disable Game Notifications", flagName = "DisableNotifs", Flag = false, Callback = function() end })
+TabMisc:createToggle({ 
     Name = "Hide Game HUD", flagName = "HideHUD", Flag = false, 
     Callback = function(v) local h = client:FindFirstChild("PlayerGui") and client.PlayerGui:FindFirstChild("HUD") if h then h.Enabled = not v end end 
 })
 
-
-TabMisc:CreateSection("Quick Actions")
-TabMisc:CreateButton({ Name = "Equip Best Cards Now", Callback = function() equipBest() Library:Notify({ Title = "Equipped", Text = "Success.", Duration = 5 }) end })
-TabMisc:CreateButton({
+TabMisc:createLabel({ Name = "Quick Actions", Special = true })
+TabMisc:createButton({ Name = "Equip Best Cards Now", Callback = function() equipBest() pcall(function() Library:createDisplayMessage("Equipped", "Success.", {{text="OK"}}, "info") end) end })
+TabMisc:createButton({
     Name = "Sell Below Threshold Now",
     Callback = function()
-        local tName = type(Library.Flags["SellThreshold"]) == "table" and Library.Flags["SellThreshold"][1] or tostring(Library.Flags["SellThreshold"] or "Silver")
+        local tName = type(Library.Flags["SellThreshold"]) == "string" and Library.Flags["SellThreshold"] or (type(Library.Flags["SellThreshold"]) == "table" and Library.Flags["SellThreshold"][1] or "Silver")
         local tLvl = getRarityLevel(tName)
         local toSell = {}
         for _, c in ipairs(getInventory()) do
@@ -770,19 +678,18 @@ TabMisc:CreateButton({
     end,
 })
 
-
-TabStats:CreateSection("Live Session Analytics")
-local l_cash = TabStats:CreateLabel({ Name = "Cash: $0" })
-local l_gems = TabStats:CreateLabel({ Name = "Gems: 0" })
-local l_reb = TabStats:CreateLabel({ Name = "Rebirth Level: 0" })
-local l_pack = TabStats:CreateLabel({ Name = "Packs Opened: 0" })
-local l_buy = TabStats:CreateLabel({ Name = "Packs Bought: 0" })
-local l_sell = TabStats:CreateLabel({ Name = "Cards Sold: 0" })
-local l_col = TabStats:CreateLabel({ Name = "Collects: 0" })
-local l_gemB = TabStats:CreateLabel({ Name = "Gem Buys: 0" })
-local l_sReb = TabStats:CreateLabel({ Name = "Session Rebirths: 0" })
-local l_wea = TabStats:CreateLabel({ Name = "Active Weather: None" })
-
+local TabStats = Setup:CreateSection("Analytics")
+TabStats:createLabel({ Name = "Live Session Analytics", Special = true })
+local l_cash = TabStats:createLabel({ Name = "Cash: $0" })
+local l_gems = TabStats:createLabel({ Name = "Gems: 0" })
+local l_reb = TabStats:createLabel({ Name = "Rebirth Level: 0" })
+local l_pack = TabStats:createLabel({ Name = "Packs Opened: 0" })
+local l_buy = TabStats:createLabel({ Name = "Packs Bought: 0" })
+local l_sell = TabStats:createLabel({ Name = "Cards Sold: 0" })
+local l_col = TabStats:createLabel({ Name = "Collects: 0" })
+local l_gemB = TabStats:createLabel({ Name = "Gem Buys: 0" })
+local l_sReb = TabStats:createLabel({ Name = "Session Rebirths: 0" })
+local l_wea = TabStats:createLabel({ Name = "Active Weather: None" })
 
 local lastUI = 0
 RunService.Heartbeat:Connect(function()
@@ -790,27 +697,27 @@ RunService.Heartbeat:Connect(function()
     if now - lastUI >= 0.5 then
         lastUI = now
         pcall(function()
-            l_cash:Set("Cash: $" .. formatCash(getCash()))
-            l_gems:Set("Gems: " .. math.floor(getGems()))
-            l_reb:Set("Rebirth Level: " .. getRebirthLevel())
-            l_pack:Set("Packs Opened: " .. stats.opened)
-            l_buy:Set("Packs Bought: " .. stats.bought)
-            l_sell:Set("Cards Sold: " .. stats.sold)
-            l_col:Set("Collects: " .. stats.collects)
-            l_gemB:Set("Gem Buys: " .. stats.gemBuys)
-            l_sReb:Set("Session Rebirths: " .. stats.rebirths)
-            l_wea:Set("Active Weather: " .. getActiveWeathers())
+            if l_cash and l_cash.Set then
+                l_cash:Set("Cash: $" .. formatCash(getCash()))
+                l_gems:Set("Gems: " .. math.floor(getGems()))
+                l_reb:Set("Rebirth Level: " .. getRebirthLevel())
+                l_pack:Set("Packs Opened: " .. stats.opened)
+                l_buy:Set("Packs Bought: " .. stats.bought)
+                l_sell:Set("Cards Sold: " .. stats.sold)
+                l_col:Set("Collects: " .. stats.collects)
+                l_gemB:Set("Gem Buys: " .. stats.gemBuys)
+                l_sReb:Set("Session Rebirths: " .. stats.rebirths)
+                l_wea:Set("Active Weather: " .. getActiveWeathers())
+            end
         end)
     end
 end)
 
-
-TabStats:CreateButton({
+TabStats:createButton({
     Name = "Reset Stats",
     Callback = function()
         stats = { opened=0, bought=0, sold=0, rebirths=0, gemBuys=0, collects=0, codesRedeemed=true }
     end,
 })
-
 
 print("[SSC Farm] Loaded successfully.")
