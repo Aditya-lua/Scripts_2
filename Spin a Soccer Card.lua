@@ -2,7 +2,7 @@
 -- // SSC Elite Farm
 -- // Dev    :- Aditya
 -- // Owner  :- Cammy
--- // Build   :- 1.0 (Bulked)
+-- // Build  :- v1.1
 -- // ============================================
 
 -- ============ SERVICES ============
@@ -19,18 +19,18 @@ local VirtualUser      = game:GetService("VirtualUser")
 local client           = Players.LocalPlayer
 
 -- ============ CONSTANTS ============
-local CODES_URL        = "https://raw.githubusercontent.com/Aditya-lua/Scripts_2/refs/heads/main/SSC_CODES.txt"
-local LIBRARY_URL      = "https://versusairlines.top/scripts/NewLibrary.lua"
-local ROBLOX_THUMBS    = "https://thumbnails.roblox.com/v1/assets?assetIds=%s&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false"
+local CODES_URL             = "https://raw.githubusercontent.com/Aditya-lua/Scripts_2/refs/heads/main/SSC_CODES.txt"
+local LIBRARY_URL           = "https://versusairlines.top/scripts/NewLibrary.lua"
+local ROBLOX_THUMBS         = "https://thumbnails.roblox.com/v1/assets?assetIds=%s&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false"
 
-local COLLECT_DEFAULT  = 3
-local STATS_DELAY_DEFAULT = 15
-local MIN_GEMS_DEFAULT = 100
-local SELL_DEFAULT     = "Silver"
+local COLLECT_DEFAULT       = 3
+local STATS_DELAY_DEFAULT   = 15
+local MIN_GEMS_DEFAULT      = 100
+local SELL_DEFAULT          = "Silver"
 local RARITY_THRESH_DEFAULT = "Mythic"
-local CODE_WAIT        = 1.5
-local REBIRTH_CD_NORMAL = 15
-local REBIRTH_CD_FORCE  = 30
+local CODE_WAIT             = 1.5
+local REBIRTH_CD_NORMAL     = 15
+local REBIRTH_CD_FORCE      = 30
 
 local GEM_SHOP_MAP = {
     ["Lucky Item"]       = "lucky",
@@ -205,11 +205,6 @@ local CardConfig    = require(RS.Source.Shared.Configs.CardConfig)
 local RebirthConfig = require(RS.Source.Shared.Configs.RebirthConfig)
 local PlayerStore   = require(RS.Source.Shared.State.PlayerStore)
 
-local WeatherStore = nil
-pcall(function()
-    WeatherStore = require(RS.Source.Shared.State.WeatherStore)
-end)
-
 -- ============ SESSION STATS ============
 local stats = {
     opened        = 0,
@@ -253,33 +248,6 @@ local function getRebirthLevel()
     return data and data.rebirth or 0
 end
 
--- ============ WEATHER ============
-local function getActiveWeathers()
-    if not WeatherStore then return "None" end
-
-    local ok, state = pcall(function() return WeatherStore() end)
-    if not ok or not state or type(state.activeWeathers) ~= "table" then
-        return "None"
-    end
-
-    local active = {}
-    local now = Workspace:GetServerTimeNow()
-
-    for weatherName, weatherData in pairs(state.activeWeathers) do
-        local hasEndTime = weatherData and weatherData.endTime
-        local isActive   = hasEndTime and weatherData.endTime > now
-        if isActive then
-            table.insert(active, weatherName)
-        end
-    end
-
-    if #active > 0 then
-        return table.concat(active, ", ")
-    end
-
-    return "None"
-end
-
 -- ============ FORMATTERS ============
 local function formatCash(n)
     n = tonumber(n) or 0
@@ -320,31 +288,31 @@ end
 
 -- ============ RARITY SYSTEM ============
 local rarityOrder = {
-    ["Bronze"]            = 1,
-    ["Silver"]            = 2,
-    ["Gold"]              = 3,
-    ["Legendary"]         = 4,
-    ["Mythic"]            = 5,
-    ["Azure Zenith"]      = 6,
-    ["Crimson Zenith"]    = 7,
-    ["Divine"]            = 8,
-    ["Primordial"]        = 9,
-    ["Oblivion"]          = 10,
-    ["Eternity"]          = 11,
-    ["Astral"]            = 12,
-    ["Sovereign"]         = 13,
-    ["Vandal"]            = 14,
-    ["The Monarch"]       = 15,
-    ["Tyrant"]            = 16,
-    ["Verdant"]           = 17,
-    ["Silvane"]           = 18,
-    ["Lunar"]             = 19,
-    ["Solar"]             = 20,
-    ["Nether"]            = 21,
-    ["Aether"]            = 22,
+    ["Bronze"]              = 1,
+    ["Silver"]              = 2,
+    ["Gold"]                = 3,
+    ["Legendary"]           = 4,
+    ["Mythic"]              = 5,
+    ["Azure Zenith"]        = 6,
+    ["Crimson Zenith"]      = 7,
+    ["Divine"]              = 8,
+    ["Primordial"]          = 9,
+    ["Oblivion"]            = 10,
+    ["Eternity"]            = 11,
+    ["Astral"]              = 12,
+    ["Sovereign"]           = 13,
+    ["Vandal"]              = 14,
+    ["The Monarch"]         = 15,
+    ["Tyrant"]              = 16,
+    ["Verdant"]             = 17,
+    ["Silvane"]             = 18,
+    ["Lunar"]               = 19,
+    ["Solar"]               = 20,
+    ["Nether"]              = 21,
+    ["Aether"]              = 22,
     ["Player of the Month"] = 23,
-    ["Exclusive"]         = 24,
-    ["Secret Exclusive"]  = 25,
+    ["Exclusive"]           = 24,
+    ["Secret Exclusive"]    = 25,
 }
 
 local rarityList = {}
@@ -372,7 +340,7 @@ local function canRebirth()
     local currentRebirth = playerData.rebirth or 0
     if currentRebirth >= maxRebirth then return false end
 
-    local nextLevel = currentRebirth + 1
+    local nextLevel   = currentRebirth + 1
     local rebirthData = nil
 
     if RebirthConfig and RebirthConfig.GetRebirth then
@@ -447,13 +415,13 @@ local function equipBest()
 
     local equippedCount = 0
     for slotIndex = 1, math.min(#candidates, slotCount) do
-        local candidate   = candidates[slotIndex]
-        local currentSlot = slots[tostring(slotIndex)] or slots[slotIndex]
+        local candidate     = candidates[slotIndex]
+        local currentSlot   = slots[tostring(slotIndex)] or slots[slotIndex]
         local currentIncome = 0
 
         if currentSlot and currentSlot.card then
-            local curCfg    = CardConfig.Cards[currentSlot.card.id]
-            currentIncome   = curCfg and curCfg.IncomeRate or 0
+            local curCfg  = CardConfig.Cards[currentSlot.card.id]
+            currentIncome = curCfg and curCfg.IncomeRate or 0
         end
 
         if candidate.income > currentIncome then
@@ -464,6 +432,29 @@ local function equipBest()
     end
 
     return equippedCount > 0
+end
+
+-- ============ GAME UI CLEANER ============
+-- Destroys the stacked Auto Open / Auto Skip game UI buttons after every roll
+local function destroyRollUIs()
+    pcall(function()
+        local pgui      = client.PlayerGui
+        local children  = pgui:GetChildren()
+        local container = children[65]
+        if not container then return end
+
+        local frame = container:FindFirstChild("Frame")
+        if not frame then return end
+
+        local buttons = frame:FindFirstChild("ButtonsContainer")
+        if not buttons then return end
+
+        local autoSkip = buttons:FindFirstChild("AutoSkip")
+        local autoOpen = buttons:FindFirstChild("AutoOpen")
+
+        if autoSkip then autoSkip:Destroy() end
+        if autoOpen then autoOpen:Destroy() end
+    end)
 end
 
 -- ============ WEBHOOK ============
@@ -492,6 +483,10 @@ end
 -- ============ RARE ROLL WEBHOOK LISTENER ============
 if remotes.OpenPack then
     remotes.OpenPack.OnClientEvent:Connect(function(img, cData, color, uuid, chances, isNew, pName)
+
+        -- Always destroy stacked roll UIs on every pack open event
+        destroyRollUIs()
+
         if img == "x" or type(cData) ~= "table" then return end
         if not Library.Flags["WebhookRareRolls"] then return end
 
@@ -527,26 +522,25 @@ if remotes.OpenPack then
 
         dispatchWebhook({
             embeds = {{
-                title       = "[*] Rare Card Rolled!",
-                description = "A high-tier card has been acquired.",
+                title       = "🎉 Rare Card Rolled!",
+                description = "You just unboxed a high-tier card!",
                 color       = 16766720,
                 thumbnail   = { url = thumbnailUrl },
                 fields = {
-                    { name = "Card Name",      value = cData.DisplayName or cData.Name, inline = false },
-                    { name = "Rarity",         value = cData.Rarity or "Unknown",       inline = false },
-                    { name = "Pack",           value = pName or "Unknown",              inline = false },
-                    { name = "Income",         value = "$" .. formatCash(income) .. "/s", inline = false },
-                    { name = "New Discovery",  value = isNew and "Yes" or "No",         inline = false },
-                    { name = "Player",         value = "||" .. client.Name .. "||",     inline = false },
+                    { name = "🎴 Card Name",    value = cData.DisplayName or cData.Name or "Unknown", inline = false },
+                    { name = "⭐ Rarity",        value = cData.Rarity or "Unknown",                   inline = false },
+                    { name = "📦 Pack",          value = pName or "Unknown",                           inline = false },
+                    { name = "💸 Income",        value = "$" .. formatCash(income) .. "/s",            inline = false },
+                    { name = "✨ New Discovery", value = isNew and "Yes" or "No",                      inline = false },
+                    { name = "🧑 Player",        value = "||" .. client.Name .. "||",                  inline = false },
                 },
-                footer = { text = "SSC Elite Farm - " .. os.date("%H:%M:%S") },
+                footer = { text = "SSC Elite Farm • " .. os.date("%H:%M:%S") },
             }}
         })
     end)
 end
 
 -- ============ FAST LOOP: OPEN & BUY PACKS ============
--- Unthrottled; respects per-slider delay values
 local openPackIndex = 1
 local buyPackIndex  = 1
 
@@ -643,11 +637,10 @@ task.spawn(function()
                 dispatchWebhook({
                     embeds = {{
                         title       = "[+] SSC Farm Analytics",
-                        description = "[$] **Cash:** $"         .. formatCash(getCash())    .. "\n"
-                                   .. "[*] **Gems:** "          .. formatCash(getGems())    .. "\n"
-                                   .. "[#] **Rebirth Level:** " .. getRebirthLevel()        .. "\n"
-                                   .. "[>] **Packs Opened:** "  .. formatCash(stats.opened) .. "\n"
-                                   .. "[?] **Active Weather:** ".. getActiveWeathers()      .. "\n"
+                        description = "[$] **Cash:** $"            .. formatCash(getCash())    .. "\n"
+                                   .. "[*] **Gems:** "             .. formatCash(getGems())    .. "\n"
+                                   .. "[#] **Rebirth Level:** "    .. getRebirthLevel()        .. "\n"
+                                   .. "[>] **Packs Opened:** "     .. formatCash(stats.opened) .. "\n"
                                    .. "[!] **Session Rebirths:** " .. stats.rebirths,
                         color  = 3447003,
                         footer = { text = "SSC Elite Farm - User: " .. client.Name },
@@ -756,21 +749,20 @@ task.spawn(function()
                                  or (type(threshFlag) == "table" and threshFlag[1])
                                  or SELL_DEFAULT
                 local threshLevel = getRarityLevel(threshName)
+                local BLOCKED     = { LocalCard = true, OwnerVulnone = true }
 
                 local toSell = {}
                 for _, card in ipairs(getInventory()) do
-                    local BLOCKED_IDS = { LocalCard = true, OwnerVulnone = true }
-                    local isEligible  = card
-                                     and card.id
-                                     and card.uuid
-                                     and not card.throneCard
-                                     and not card.locked
-                                     and not BLOCKED_IDS[card.id]
+                    local isEligible = card
+                                    and card.id
+                                    and card.uuid
+                                    and not card.throneCard
+                                    and not card.locked
+                                    and not BLOCKED[card.id]
 
                     if isEligible then
-                        local cfg         = CardConfig.Cards[card.id]
-                        local cardRarity  = cfg and cfg.Rarity or nil
-                        local cardLevel   = getRarityLevel(cardRarity)
+                        local cfg       = CardConfig.Cards[card.id]
+                        local cardLevel = getRarityLevel(cfg and cfg.Rarity or nil)
                         if cardLevel < threshLevel then
                             table.insert(toSell, card.uuid)
                         end
@@ -1165,10 +1157,10 @@ TabWebhook:createButton({
         end
         dispatchWebhook({
             embeds = {{
-                title       = "[~] Test Webhook",
+                title       = "🔔 Test Webhook",
                 description = "SSC Elite Farm webhook is working correctly.",
                 color       = 5763719,
-                footer      = { text = "SSC Elite Farm - " .. client.Name },
+                footer      = { text = "SSC Elite Farm • " .. client.Name },
             }}
         })
         notify("Webhook", "Test sent.", "info")
@@ -1226,13 +1218,13 @@ TabMisc:createButton({
     Name        = "Sell Below Threshold Now",
     Description = "Immediately sells all cards below the current rarity threshold.",
     Callback    = function()
-        local flag     = Library.Flags and Library.Flags["SellThreshold"]
-        local tName    = type(flag) == "table" and flag[1]
-                      or (type(flag) == "string" and flag)
-                      or SELL_DEFAULT
-        local tLevel   = getRarityLevel(tName)
-        local toSell   = {}
-        local BLOCKED  = { LocalCard = true, OwnerVulnone = true }
+        local flag    = Library.Flags and Library.Flags["SellThreshold"]
+        local tName   = type(flag) == "table" and flag[1]
+                     or (type(flag) == "string" and flag)
+                     or SELL_DEFAULT
+        local tLevel  = getRarityLevel(tName)
+        local toSell  = {}
+        local BLOCKED = { LocalCard = true, OwnerVulnone = true }
 
         for _, card in ipairs(getInventory()) do
             local isEligible = card
@@ -1243,7 +1235,7 @@ TabMisc:createButton({
                             and not BLOCKED[card.id]
 
             if isEligible then
-                local cfg   = CardConfig.Cards[card.id]
+                local cfg = CardConfig.Cards[card.id]
                 if cfg and getRarityLevel(cfg.Rarity) < tLevel then
                     table.insert(toSell, card.uuid)
                 end
@@ -1256,6 +1248,15 @@ TabMisc:createButton({
         else
             notify("Sold", "No cards matched the threshold.", "info")
         end
+    end,
+})
+
+TabMisc:createButton({
+    Name        = "Clean Roll UIs Now",
+    Description = "Manually destroys the stacked Auto Open / Auto Skip game buttons.",
+    Callback    = function()
+        destroyRollUIs()
+        notify("Cleaned", "Roll UIs destroyed.", "info")
     end,
 })
 
@@ -1279,7 +1280,6 @@ local label_sold     = TabStats:createLabel({ Name = "Cards Sold: 0" })
 local label_collect  = TabStats:createLabel({ Name = "Collects: 0" })
 local label_gemBuys  = TabStats:createLabel({ Name = "Gem Buys: 0" })
 local label_sRebirth = TabStats:createLabel({ Name = "Session Rebirths: 0" })
-local label_weather  = TabStats:createLabel({ Name = "Active Weather: None" })
 
 -- ============ STATS UPDATE LOOP ============
 local lastUIUpdate = 0
@@ -1292,16 +1292,15 @@ RunService.Heartbeat:Connect(function()
     pcall(function()
         if not (label_cash and label_cash.Set) then return end
 
-        label_cash:Set("Cash: $"              .. formatCash(getCash()))
-        label_gems:Set("Gems: "               .. math.floor(getGems()))
-        label_rebirth:Set("Rebirth Level: "   .. getRebirthLevel())
-        label_opened:Set("Packs Opened: "     .. stats.opened)
-        label_bought:Set("Packs Bought: "     .. stats.bought)
-        label_sold:Set("Cards Sold: "         .. stats.sold)
-        label_collect:Set("Collects: "        .. stats.collects)
-        label_gemBuys:Set("Gem Buys: "        .. stats.gemBuys)
+        label_cash:Set("Cash: $"                .. formatCash(getCash()))
+        label_gems:Set("Gems: "                 .. math.floor(getGems()))
+        label_rebirth:Set("Rebirth Level: "     .. getRebirthLevel())
+        label_opened:Set("Packs Opened: "       .. stats.opened)
+        label_bought:Set("Packs Bought: "       .. stats.bought)
+        label_sold:Set("Cards Sold: "           .. stats.sold)
+        label_collect:Set("Collects: "          .. stats.collects)
+        label_gemBuys:Set("Gem Buys: "          .. stats.gemBuys)
         label_sRebirth:Set("Session Rebirths: " .. stats.rebirths)
-        label_weather:Set("Active Weather: "  .. getActiveWeathers())
     end)
 end)
 
@@ -1323,4 +1322,4 @@ TabStats:createButton({
 })
 
 -- ============ DONE ============
-print("[SSC Farm] Loaded successfully — SSC Elite Farm v2.0")
+print("[SSC Farm] Loaded successfully — SSC Elite Farm v2.1")
