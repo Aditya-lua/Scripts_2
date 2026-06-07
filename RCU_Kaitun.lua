@@ -45,6 +45,7 @@ local BuildingService = Knit.GetService("BuildingService")
 local ClanService = Knit.GetService("ClanService")
 local HiveService = Knit.GetService("HiveService")
 local LumberjackService = Knit.GetService("LumberjackService")
+local DungeonService = Knit.GetService("DungeonService")
 
 local DataController = Knit.GetController("DataController")
 local EggController = Knit.GetController("EggController")
@@ -167,7 +168,22 @@ if S.AggressiveGC then loop(10, function() collectgarbage("collect") end) end
 -- ══════════════════════════════════════════════
 -- AUTO CLICK
 -- ══════════════════════════════════════════════
-if S.AutoClick then loop(0.02, function() ClickController:setLastClickType(2); ClickController:setDebounce(); ClickController:doClick() end) end
+if S.AutoClick then
+    task.spawn(function()
+        local rng = Random.new()
+        while true do
+            pcall(function()
+                ClickController:setLastClickType(2)
+                ClickController:setDebounce()
+                ClickController:doClick()
+            end)
+            local d = pd()
+            local hasPass = d and d.passes and d.passes.autoClicker
+            local baseDelay = hasPass and 0.05 or 0.1
+            task.wait(baseDelay + rng:NextNumber(0, 0.03))
+        end
+    end)
+end
 
 -- ══════════════════════════════════════════════
 -- AUTO HATCH
@@ -176,9 +192,26 @@ if S.HideHatchAnimation then
     HatchingController._realAnim = HatchingController._realAnim or HatchingController.playEggAnimation
     HatchingController.playEggAnimation = function() return nil end
 end
+-- Read hatch speed from UI (same as main script)
+_G.SmartHatchDelay = 4.11
+task.spawn(function()
+    pcall(function()
+        local label = LP.PlayerGui.MainUI.Menus.SettingsFrame.Main.List.Multipliers.HatchingSpeed.Main.Amount
+        while true do
+            local ok, txt = pcall(function() return label.Text end)
+            if ok and txt then
+                local num = string.match(txt, "%d+%.?%d*")
+                if num then _G.SmartHatchDelay = (tonumber(num) or 4.01) + 0.1 end
+            end
+            task.wait(5)
+        end
+    end)
+end)
+
 if S.AutoHatch then
     task.spawn(function()
         local EggsModule = require(RS.Shared.List.Pets.Eggs)
+        local rng = Random.new()
         while true do
             if not HatchingController._isHatching then
                 safe(function()
@@ -197,7 +230,9 @@ if S.AutoHatch then
                     end
                 end)
             end
-            task.wait(0.17)
+            -- Use game's own hatch speed + random jitter to avoid detection
+            local hatchDelay = _G.SmartHatchDelay or 4.11
+            task.wait(hatchDelay + rng:NextNumber(0, 0.15))
         end
     end)
 end
@@ -292,15 +327,45 @@ end
 if S.AutoCraftBees then
     loop(10, function()
         local d=pd(); if not d.inventory or not d.inventory.bee then return end
+        local doShiny = (S.CraftBeeType == "shiny" or S.CraftBeeType == "both") and d.hiveUpgrades and d.hiveUpgrades.shinyBeesCrafting
+        local doRainbow = (S.CraftBeeType == "rainbow" or S.CraftBeeType == "both") and d.hiveUpgrades and d.hiveUpgrades.rainbowBeesCrafting
+        if not doShiny and not doRainbow then return end
         for id,data in pairs(d.inventory.bee) do
             local obj=Util.itemUtils.createItemFromData(data); if not obj then continue end
-            local am=data.am or 1; local isSh=obj.isShiny and obj:isShiny() or false; local isRb=obj.isRainbow and obj:isRainbow() or false
-            if S.CraftBeeType=="shiny" and not isSh and not isRb and am>=150 then HiveService:craftBee(id,"shiny"); task.wait(0.5)
-            elseif S.CraftBeeType=="rainbow" and isSh and not isRb and am>=10 then HiveService:craftBee(id,"rainbow"); task.wait(0.5) end
+            local am=data.am or 1
+            local isSh = (obj.isShiny) and obj:isShiny() or false
+            local isRb = (obj.isRainbow) and obj:isRainbow() or false
+            if doShiny and not isSh and not isRb and am>=150 then HiveService:craftBee(id,"shiny"); task.wait(1) end
+            if doRainbow and isSh and not isRb and am>=10 then HiveService:craftBee(id,"rainbow"); task.wait(1) end
         end
     end)
 end
-if S.AutoClaimBeedex then loop(15, function() pcall(function() local BR=require(RS.Shared.List.Hive.BeedexRewards); local d=pd(); local n=0; for _ in pairs(d.beedex or {}) do n=n+1 end; for _,r in ipairs(BR) do if n>=r.required then HiveService:claimBeedexReward(r.required); task.wait(0.5) end end end) end) end
+if S.AutoClaimBeedex then
+    local BeedexClaimRemote = nil
+    pcall(function()
+        local servicesFolder = RS.Packages.Knit.Services
+        local hiveServiceFolder = servicesFolder:GetChildren()[65]
+        if hiveServiceFolder then
+            BeedexClaimRemote = hiveServiceFolder.RF:GetChildren()[2]
+        end
+    end)
+    loop(15, function()
+        pcall(function()
+            local BR = require(RS.Shared.List.Hive.BeedexRewards)
+            local d = pd()
+            local n = 0
+            for _ in pairs(d.beedex or {}) do n = n + 1 end
+            if BR and BeedexClaimRemote then
+                for rewardIndex, reward in ipairs(BR) do
+                    if n >= reward.required then
+                        pcall(function() BeedexClaimRemote:InvokeServer(rewardIndex) end)
+                        task.wait(0.5)
+                    end
+                end
+            end
+        end)
+    end)
+end
 if S.AutoBuyHoneyMerchant then loop(30, function() for i=1,6 do pcall(function() HiveService:buyHoneyMerchant(i) end); task.wait(0.3) end end) end
 if S.AutoBuyHoneyShop then loop(30, function() for i=1,10 do pcall(function() HiveService:buyHoneyShop(i) end); task.wait(0.3) end end) end
 
