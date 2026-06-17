@@ -16,7 +16,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
-local PathfindingService = game:GetService("PathfindingService")
 local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -29,9 +28,24 @@ _G.GardenHQ = nil
 if not table.find then table.find = function(t,v) for i=1,#t do if t[i]==v then return i end end end end
 if not table.clear then table.clear = function(t) for k in pairs(t) do t[k]=nil end end end
 
-local CO, CC = {}, {}
-local function RC(v) if typeof(v)=="RBXScriptConnection" then CC[#CC+1]=v elseif typeof(v)=="Instance" then CO[#CO+1]=v end end
-_G.GardenHQ = function() for _,c in CC do pcall(function() c:Disconnect() end) end; for _,o in CO do pcall(function() if o and o.Parent then o:Destroy() end end) end; CO={}; CC={} end
+local Alive = true
+local CO, CC, CT = {}, {}, {}
+local function RC(v)
+    if typeof(v)=="RBXScriptConnection" then
+        CC[#CC+1]=v
+    elseif typeof(v)=="Instance" then
+        CO[#CO+1]=v
+    elseif type(v)=="thread" then
+        CT[#CT+1]=v
+    end
+end
+_G.GardenHQ = function()
+    Alive = false
+    for _,c in CC do pcall(function() c:Disconnect() end) end
+    for _,t in CT do pcall(function() if coroutine.status(t) ~= "dead" then task.cancel(t) end end) end
+    for _,o in CO do pcall(function() if o and o.Parent then o:Destroy() end end) end
+    CO={}; CC={}; CT={}
+end
 
 print(string.rep("━",64))
 print("┃ GardenMaster HQ v5.0 ┃ Premium Edition")
@@ -42,13 +56,13 @@ local Library = loadstring(game:HttpGet("https://versusairlines.top/scripts/NewL
 if not Library then warn("[HQ] Library failed"); return end
 local UI = Library:Setup({Location=CoreGui, OpenCloseLocation="Bottom Right"})
 
-client.Idled:Connect(function()
+RC(client.Idled:Connect(function()
     pcall(function()
         VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
         task.wait(0.5)
         VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
     end)
-end)
+end))
 
 -- Loop tracker
 local LT = {}
@@ -689,7 +703,7 @@ GardenTab:createDropdown({Name="Harvest Fruits",flagName="AH_list",multi=true,Li
 GardenTab:createDropdown({Name="Harvest Blacklist",flagName="AH_blist",multi=true,List=GD.seeds})
 GardenTab:createDropdown({Name="Harvest Priority",flagName="HP",List={"Highest Value","Closest","Oldest"}})
 GardenTab:createToggle({Name="Stop When Full",flagName="AH_fullstop",Flag=false})
-GardenTab:createSlider({Name="Max Harvest Count",flagName="AH_max",value=30,min=1,max=200})
+GardenTab:createSlider({Name="Max Harvest Count",flagName="AH_max",value=30,minValue=1,maxValue=200})
 
 ciToggle(GardenTab,{Name="Auto Harvest",flagName="AH",tag="AH",delay=0.05,Step=function()
     local st=Library.Flags["AH_type"]
@@ -747,7 +761,7 @@ GardenTab:createLabel({Name="Plot Cleanup",Special=true})
 GardenTab:createDropdown({Name="Auto Remove",flagName="RM_type",List={"None","All","Low KG","Selected","Blacklist"}})
 GardenTab:createDropdown({Name="Remove Fruits",flagName="RM_list",multi=true,List=GD.seeds})
 GardenTab:createDropdown({Name="Low Weight Fruits",flagName="RM_low_type",List={"None","All","Selected"}})
-GardenTab:createSlider({Name="Max Fruit KG",flagName="RM_maxKG",value=0,min=0,max=100000})
+GardenTab:createSlider({Name="Max Fruit KG",flagName="RM_maxKG",value=0,minValue=0,maxValue=100000})
 GardenTab:createDropdown({Name="Remove Plants",flagName="RM_plants",List={"None","All","Selected","Low Value"}})
 
 ciToggle(GardenTab,{Name="Auto Remove",flagName="RM",tag="RM",delay=0.6,Step=function()
@@ -805,7 +819,7 @@ GardenTab:createDropdown({Name="Gear To Use",flagName="GU_list",multi=true,List=
 GardenTab:createDropdown({Name="Target Priority",flagName="GU_prio",List={"Best Value","Closest"}})
 GardenTab:createToggle({Name="Cluster Optimize",flagName="GU_cluster",Flag=false})
 GardenTab:createDropdown({Name="Target Rarities",flagName="GU_rar",multi=true,List=RTS})
-GardenTab:createSlider({Name="Min Value",flagName="GU_minVal",value=0,min=0,max=100000})
+GardenTab:createSlider({Name="Min Value",flagName="GU_minVal",value=0,minValue=0,maxValue=100000})
 
 ciToggle(GardenTab,{Name="Auto Use Gear",flagName="GU",tag="GU",delay=0.55,Step=function()
     local st=Library.Flags["GU_type"]; if st=="None" then return end
@@ -872,7 +886,7 @@ GardenTab:createLabel({Name="Plot Teleport",Special=true})
 
 GardenTab:createToggle({Name="Teleport To Gate (Collect)",flagName="TPToEntranceCollect",Flag=true})
 GardenTab:createToggle({Name="Teleport To Gate (Plant)",flagName="TPToEntrancePlant",Flag=true})
-GardenTab:createSlider({Name="Geofence Radius",flagName="Geofence",value=22,min=8,max=90})
+GardenTab:createSlider({Name="Geofence Radius",flagName="Geofence",value=22,minValue=8,maxValue=90})
 GardenTab:createDropdown({Name="Placement Mode",flagName="PlacingMode",List={"Good Position","Player Position","Random","Mouse"}})
 GardenTab:createButton({Name="Teleport to Garden",Callback=function()
     authenticatePlot(); if PL.auth and PL.gate then TP(PL.gate.Position); NF("Teleport","Arrived.","info") else NF("Teleport","No garden found.","warning") end
@@ -934,8 +948,8 @@ StealerTab:createDropdown({Name="Steal Rarities",flagName="ST_rar",multi=true,Li
 StealerTab:createDropdown({Name="Plant Names",flagName="ST_names",multi=true,List=GD.seeds})
 StealerTab:createDropdown({Name="Mutation Whitelist",flagName="ST_mw",multi=true,List=MTS})
 StealerTab:createDropdown({Name="Mutation Blacklist",flagName="ST_mb",multi=true,List=MTS})
-StealerTab:createSlider({Name="Minimum KG",flagName="ST_minKG",value=0,min=0,max=100000})
-StealerTab:createSlider({Name="Carry Per Steal",flagName="ST_carry",value=50,min=1,max=200})
+StealerTab:createSlider({Name="Minimum KG",flagName="ST_minKG",value=0,minValue=0,maxValue=100000})
+StealerTab:createSlider({Name="Carry Per Steal",flagName="ST_carry",value=50,minValue=1,maxValue=200})
 StealerTab:createDropdown({Name="Target Priority",flagName="ST_prio",List={"Value","Closest","Random"}})
 StealerTab:createToggle({Name="Skip Friends",flagName="ST_skipF",Flag=false})
 StealerTab:createToggle({Name="Avoid Owners",flagName="ST_avoidO",Flag=false})
@@ -1159,7 +1173,7 @@ local VisualsTab = UI:CreateSection("👁️ Visuals")
 
 VisualsTab:createLabel({Name="World Settings",Special=true})
 
-VisualsTab:createSlider({Name="Clock Time",flagName="ClockTime",value=21,min=0,max=24})
+VisualsTab:createSlider({Name="Clock Time",flagName="ClockTime",value=21,minValue=0,maxValue=24})
 ciToggle(VisualsTab,{Name="Override Clock Time",flagName="ClockOv",tag="ClockOv",delay=0.1,Step=function()
     Lighting.ClockTime=Library.Flags["ClockTime"] or 21
 end})
@@ -1176,7 +1190,7 @@ ciToggle(VisualsTab,{Name="No Fog",flagName="NoFog",tag="NoFog",delay=0.5,Step=f
     Lighting.FogEnd=100000; Lighting.FogStart=100000
 end})
 
-VisualsTab:createSlider({Name="Field Of View",flagName="FOV",value=70,min=30,max=120})
+VisualsTab:createSlider({Name="Field Of View",flagName="FOV",value=70,minValue=30,maxValue=120})
 ciToggle(VisualsTab,{Name="Override FOV",flagName="FOVOn",tag="FOVOn",delay=0.5,Step=function()
     local cam=Workspace.CurrentCamera; if cam then cam.FieldOfView=Library.Flags["FOV"] or 70 end
 end})
@@ -1190,7 +1204,7 @@ VisualsTab:createToggle({Name="Held Item",flagName="PHeld",Flag=false})
 VisualsTab:createToggle({Name="Distance",flagName="PDist",Flag=false})
 VisualsTab:createToggle({Name="Tracers",flagName="PTracer",Flag=false})
 VisualsTab:createToggle({Name="Skeleton ESP",flagName="PSkel",Flag=false})
-VisualsTab:createSlider({Name="Max Distance",flagName="PRange",value=1500,min=100,max=3000})
+VisualsTab:createSlider({Name="Max Distance",flagName="PRange",value=1500,minValue=100,maxValue=3000})
 
 VisualsTab:createLabel({Name="Better Graphics",Special=true})
 VisualsTab:createToggle({Name="Better Graphics",flagName="BGFX",Flag=false,Callback=function(e)
@@ -1198,7 +1212,7 @@ VisualsTab:createToggle({Name="Better Graphics",flagName="BGFX",Flag=false,Callb
     if not cc then cc=Instance.new("ColorCorrectionEffect"); cc.Parent=Lighting end
     if e then cc.Brightness=0.05; cc.Contrast=0.15; cc.Saturation=0.25; cc.Enabled=true else cc.Enabled=false end
 end})
-VisualsTab:createSlider({Name="Darkness",flagName="BGFX_dark",value=100,min=0,max=100})
+VisualsTab:createSlider({Name="Darkness",flagName="BGFX_dark",value=100,minValue=0,maxValue=100})
 
 VisualsTab:createLabel({Name="Plant ESP",Special=true})
 VisualsTab:createToggle({Name="Plant Radar",flagName="PlantESP",Flag=false})
@@ -1208,20 +1222,20 @@ VisualsTab:createToggle({Name="Owned Only",flagName="PE_owned",Flag=false})
 VisualsTab:createToggle({Name="Show Mutation",flagName="PE_mut",Flag=false})
 VisualsTab:createToggle({Name="Show Distance",flagName="PE_dist",Flag=false})
 VisualsTab:createToggle({Name="Show Value Score",flagName="PE_val",Flag=false})
-VisualsTab:createSlider({Name="Max Distance",flagName="PE_range",value=1500,min=100,max=3000})
+VisualsTab:createSlider({Name="Max Distance",flagName="PE_range",value=1500,minValue=100,maxValue=3000})
 
 VisualsTab:createLabel({Name="Prop ESP",Special=true})
 VisualsTab:createToggle({Name="Show Props",flagName="PropESP",Flag=false})
 VisualsTab:createToggle({Name="Show Prop Names",flagName="PropESPName",Flag=false})
-VisualsTab:createSlider({Name="Prop ESP Range",flagName="PropRange",value=500,min=50,max=2000})
+VisualsTab:createSlider({Name="Prop ESP Range",flagName="PropRange",value=500,minValue=50,maxValue=2000})
 
 VisualsTab:createLabel({Name="Sprinkler ESP",Special=true})
 VisualsTab:createToggle({Name="Show Sprinklers",flagName="SprESP",Flag=false})
-VisualsTab:createSlider({Name="Sprinkler ESP Range",flagName="SprRange",value=300,min=50,max=1500})
+VisualsTab:createSlider({Name="Sprinkler ESP Range",flagName="SprRange",value=300,minValue=50,maxValue=1500})
 
 VisualsTab:createLabel({Name="Rake ESP",Special=true})
 VisualsTab:createToggle({Name="Show Rakes",flagName="RakeESP",Flag=false})
-VisualsTab:createSlider({Name="Rake ESP Range",flagName="RakeRange",value=300,min=50,max=1500})
+VisualsTab:createSlider({Name="Rake ESP Range",flagName="RakeRange",value=300,minValue=50,maxValue=1500})
 
 -- ##############################################################################
 -- ##############################################################################
@@ -1658,7 +1672,7 @@ local SystemState = {
 }
 
 RC(task.spawn(function()
-    while true do
+    while Alive do
         task.wait(1.2)
         pcall(function()
             local nowReal = os.time()
@@ -1753,7 +1767,7 @@ local NightStatusLabel = PredictorsTab:createLabel({Name="Night Status: Checking
 local PlotStatusLabel = PredictorsTab:createLabel({Name="Plot Status: Not authenticated",Center=true})
 
 RC(task.spawn(function()
-    while true do
+    while Alive do
         task.wait(2)
         pcall(function()
             local weatherText = "Weather: " .. SystemState.currentWeather .. " | Next: " .. SystemState.nextWeather
@@ -2056,7 +2070,7 @@ end})
 
 -- Rare find notification loop
 RC(task.spawn(function()
-    while true do
+    while Alive do
         task.wait(10)
         pcall(function()
             if not Library.Flags["WH_Rare"] then return end
@@ -2141,13 +2155,13 @@ ExtraTab:createToggle({Name="Infinite Jump",flagName="InfJump",Flag=false,Callba
     else DL("InfJump") end
 end})
 
-ExtraTab:createSlider({Name="Walk Speed",flagName="WalkSpeed",value=16,min=16,max=200})
+ExtraTab:createSlider({Name="Walk Speed",flagName="WalkSpeed",value=16,minValue=16,maxValue=200})
 ciToggle(ExtraTab,{Name="Override Walk Speed",flagName="WSOn",tag="WSOn",delay=0.3,Step=function()
     local hum = client.Character and client.Character:FindFirstChildOfClass("Humanoid")
     if hum then hum.WalkSpeed = Library.Flags["WalkSpeed"] or 16 end
 end})
 
-ExtraTab:createSlider({Name="Jump Power",flagName="JumpPower",value=50,min=50,max=300})
+ExtraTab:createSlider({Name="Jump Power",flagName="JumpPower",value=50,minValue=50,maxValue=300})
 ciToggle(ExtraTab,{Name="Override Jump Power",flagName="JPOn",tag="JPOn",delay=0.3,Step=function()
     local hum = client.Character and client.Character:FindFirstChildOfClass("Humanoid")
     if hum then hum.JumpPower = Library.Flags["JumpPower"] or 50 end
@@ -2217,7 +2231,7 @@ end))
 
 -- Periodic cleanup loop
 RC(task.spawn(function()
-    while true do
+    while Alive do
         task.wait(120)
         pcall(function()
             -- Clear stale ESP objects
@@ -2256,55 +2270,6 @@ print("┃ ESP: Player (Box/Name/HP/Team/Held/Distance/Tracers/Skeleton) | Plant
 print("┃ HUD: Weather Bar + Stock Ticker + Status Bar")
 print(string.rep("━",64))
 
--- ##############################################################################
--- ##############################################################################
--- MUTATIONS GUIDE TAB
--- ##############################################################################
--- ##############################################################################
-local GuideTab = UI:CreateSection("📖 Guide")
-
-GuideTab:createLabel({Name="Mutation Value Multipliers",Special=true})
-
-GuideTab:createLabel({Name="Gold x15 | Rainbow x42 | Electric x11 | Solarflare x13 | Frozen x9",Center=true})
-GuideTab:createLabel({Name="Bloodlit x11 | Chained x7 | Pizza x6 | Starstruck x22 | Ghost x18 | Poison x14",Center=true})
-
-GuideTab:createLabel({Name="Rarity Base Scores",Special=true})
-GuideTab:createLabel({Name="Common: 120 | Uncommon: 240 | Rare: 360 | Super: 480 | Epic: 600 | Legendary: 720 | Mythic: 840",Center=true})
-
-GuideTab:createLabel({Name="Weather Event Timers",Special=true})
-
-ciToggle(GuideTab,{Name="Weather Timer Display",flagName="GT_Timers",tag="GT_Timers",delay=5.0,Step=function()
-    local nr=os.time()
-    local rr=2700-(nr%2700); local rb=3600-(nr%3600); local rg=7200-(nr%7200)
-    -- Update silently
-end})
-
-GuideTab:createLabel({Name="Rainbow: Every 45 min | Bloodmoon: Every 60 min | Goldmoon: Every 120 min",Center=true})
-GuideTab:createLabel({Name="Night: 18:00-6:00 game time | Stealing only possible at night",Center=true})
-
-GuideTab:createLabel({Name="Remote Reference",Special=true})
-GuideTab:createLabel({Name="Garden.CollectFruit | Plant.PlantSeed | Place.PlaceSprinkler",Center=true})
-GuideTab:createLabel({Name="WateringCan.UseWateringCan | Shovel.UseShovel | Trowel.MovePlant",Center=true})
-GuideTab:createLabel({Name="Steal.BeginSteal/CompleteSteal | NPCS.SellAll/SellFruit",Center=true})
-GuideTab:createLabel({Name="SeedShop.PurchaseSeed | GearShop.PurchaseGear | CrateShop.PurchaseCrate",Center=true})
-GuideTab:createLabel({Name="Settings.SubmitCode | Pets.PetEquipped | Crate.OpenCrate",Center=true})
-GuideTab:createLabel({Name="SeedPack.OpenSeedPack | Egg.OpenEgg | Prop.PlaceProp/PickupProp",Center=true})
-
-GuideTab:createLabel({Name="Placement Strategy Tips",Special=true})
-GuideTab:createLabel({Name="Good Position = Row-by-row from back of garden, fills each row",Center=true})
-GuideTab:createLabel({Name="Player Position = Plants at your character's feet",Center=true})
-GuideTab:createLabel({Name="Random = Scatters across your entire plot randomly",Center=true})
-
-GuideTab:createLabel({Name="Stealing Strategy",Special=true})
-GuideTab:createLabel({Name="Only works during Night (6PM-6AM game time)",Center=true})
-GuideTab:createLabel({Name="Use Mutation Blacklist to avoid low-value steals",Center=true})
-GuideTab:createLabel({Name="Enable Fling Owner to push away defending players",Center=true})
-
-GuideTab:createLabel({Name="Quick Tips",Special=true})
-GuideTab:createLabel({Name="Always enable Humanized Mode to avoid detection",Center=true})
-GuideTab:createLabel({Name="Use Good Position placement for organized gardens",Center=true})
-GuideTab:createLabel({Name="Water before harvesting to maximize fruit yield",Center=true})
-GuideTab:createLabel({Name="Teleport guard brings you back to your garden gate",Center=true})
 
 -- ##############################################################################
 -- ##############################################################################
@@ -2325,7 +2290,7 @@ end))
 
 -- Memory cleanup every 5 minutes
 RC(task.spawn(function()
-    while true do
+    while Alive do
         task.wait(300)
         pcall(function()
             local espCount = 0
@@ -2365,7 +2330,6 @@ print("┃   🛠️ Dev: Plot/GameData/Network/Remote dumping tools")
 print("┃   🔔 Webhooks: Discord integration for rare finds + steals")
 print("┃   🏆 Stats: Session tracking + uptime")
 print("┃   🔧 Extras: Fly/NoClip/Speed/Jump/Server Hop")
-print("┃   📖 Guide: Mutation values/Rarity scores/Weather timers/Tips")
 print("┃")
 print("┃ Game Data: "..#GD.seeds.." seeds | "..#GD.gears.." gears | "..#GD.crates.." crates | "..#GD.pets.." pets")
 print(string.rep("━",64))
@@ -2536,7 +2500,7 @@ end
 
 -- Final cleanup hook
 local function fullCleanup()
-    cleanupESP()
+    cleanESP()
     cleanTracers()
     ESP_Cache = {}
     TracerCache = {}
@@ -2549,9 +2513,10 @@ end
 
 -- Register full cleanup
 RC(RunService.Heartbeat:Connect(function()
-    -- Every 30 seconds, validate cache
     if os.clock() - cachedPlotCheckTime > 30 then
-        authenticatedPlot = PL.auth
+        pcall(authenticatePlot)
+        cachedPlotAuth = PL.auth
+        cachedPlotCheckTime = os.clock()
     end
 end))
 
