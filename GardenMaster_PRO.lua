@@ -183,6 +183,11 @@ pcall(function() Net=require(ReplicatedStorage:WaitForChild("SharedModules",5):W
 if not Net then warn("[HQ] CRITICAL: No Network module at ReplicatedStorage.SharedModules.Networking"); return end
 print("[HQ] Network module loaded successfully")
 
+local PacketEvent
+pcall(function()
+    PacketEvent = ReplicatedStorage:WaitForChild("SharedModules", 5):WaitForChild("Packet", 5):WaitForChild("RemoteEvent", 5)
+end)
+
 -- ===========================================================================
 -- GAME DATA DISCOVERY ENGINE
 -- ===========================================================================
@@ -227,6 +232,36 @@ pcall(function()
     GD.allItems = {}
     for _,cat in ipairs({GD.seeds,GD.gears,GD.crates,GD.pets}) do for _,v in ipairs(cat) do GD.allItems[#GD.allItems+1]=v end end
     print(string.format("[HQ] Discovered: %d seeds | %d gears | %d crates | %d pets",#GD.seeds,#GD.gears,#GD.crates,#GD.pets))
+end)
+
+local function keepItems(list, predicate)
+    local out, seen = {}, {}
+    for _, name in ipairs(list or {}) do
+        if type(name) == "string" and predicate(name) and not seen[name] then
+            seen[name] = true
+            out[#out + 1] = name
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+local function itemNameHasAny(name, words)
+    local n = tostring(name or ""):lower()
+    for _, word in ipairs(words) do
+        if n:find(word, 1, true) then return true end
+    end
+    return false
+end
+
+GD.seeds = keepItems(GD.seeds, function(name)
+    return not itemNameHasAny(name, {"crate", "box", "egg", "pet", "sprinkler", "shovel", "watering", "gear"})
+end)
+GD.gears = keepItems(GD.gears, function(name)
+    return itemNameHasAny(name, {"sprinkler", "watering", "shovel", "trowel", "rake", "pot", "mushroom", "wall"}) and not itemNameHasAny(name, {"egg", "pet", "crate", "box", "seed pack"})
+end)
+GD.sprinklers = keepItems(GD.gears, function(name)
+    return tostring(name):lower():find("sprinkler", 1, true) ~= nil
 end)
 
 -- ===========================================================================
@@ -466,18 +501,18 @@ local function plantSeedAction(seedName, targetPosition)
         return false
     end
 
-    if tool.Parent ~= client.Character then
-        equipTool(tool)
-        task.wait(0.08)
-    end
-
     local seedType = cleanItemName(tool.Name)
     if seedType == "" then seedType = cleanItemName(seedName) end
+
     local ok, err = pcall(function()
-        Net.Plant.PlantSeed:Fire(targetPosition, seedType, tool)
+        if PacketEvent then
+            PacketEvent:FireServer(4, targetPosition, seedType, tool)
+        else
+            Net.Plant.PlantSeed:Fire(targetPosition, seedType, tool)
+        end
     end)
     if not ok then
-        warn("[HQ:Plant] PlantSeed failed: " .. tostring(err))
+        warn("[HQ:Plant] Plant failed: " .. tostring(err))
         return false
     end
     return true
@@ -487,10 +522,13 @@ end
 local function placeSprinklerAction(sprinklerName, targetPosition)
     if not sprinklerName or not targetPosition then return false end
     local tool = findTool(sprinklerName)
-    if not tool then return false end
-    if tool.Parent~=client.Character then equipTool(tool); task.wait(0.06) end
-    Net.Place.PlaceSprinkler:Fire(targetPosition, sprinklerName, tool, 1)
-    return true
+    if not tool or not tostring(tool.Name):lower():find("sprinkler", 1, true) then return false end
+    if tool.Parent ~= client.Character then equipTool(tool); task.wait(0.03) end
+    local cleanName = cleanItemName(tool.Name)
+    local ok = pcall(function()
+        Net.Place.PlaceSprinkler:Fire(targetPosition, cleanName, tool, 1)
+    end)
+    return ok
 end
 
 -- WateringCan: Water plants
@@ -503,11 +541,12 @@ end
 
 -- Shovel: Dig up plants
 local function shovelPlantAction(plantId, fruitId, shovelTool)
+    if not plantId then return end
     local tool = shovelTool or findTool("shovel") or findTool("Shovel")
     if not tool then return end
-    equipTool(tool); task.wait(0.05)
-    local attr = tool:GetAttribute("Shovel") or ""
-    Net.Shovel.UseShovel:Fire(plantId, fruitId or "", attr, tool)
+    if tool.Parent ~= client.Character then equipTool(tool); task.wait(0.015) end
+    local attr = tool:GetAttribute("Shovel") or cleanItemName(tool.Name)
+    pcall(function() Net.Shovel.UseShovel:Fire(plantId, fruitId or "", attr, tool) end)
 end
 
 -- Trowel: Move plants
@@ -518,7 +557,25 @@ end
 
 -- NPCS: Selling
 local function sellAllItems()
-    Net.NPCS.SellAll:Fire()
+    pcall(function() Net.NPCS.SellAll:Fire() end)
+end
+
+local function isBackpackFull()
+    if client:GetAttribute("BackpackFull") then return true end
+    local bp = client:FindFirstChild("Backpack")
+    if bp and bp:GetAttribute("BackpackFull") then return true end
+    local max = client:GetAttribute("BackpackMax") or client:GetAttribute("MaxBackpack") or 0
+    if bp and max > 0 and #bp:GetChildren() >= max then return true end
+    local pg = client:FindFirstChild("PlayerGui")
+    if pg then
+        for _, d in ipairs(pg:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("TextButton") then
+                local s = tostring(d.Text or ""):lower()
+                if s:find("backpack") and (s:find("full") or s:find("100/100")) then return true end
+            end
+        end
+    end
+    return false
 end
 
 local function sellSingleFruit(fruitId)
@@ -615,12 +672,33 @@ end
 -- ===========================================================================
 -- NIGHT DETECTION
 -- ===========================================================================
-local nightDetector = ReplicatedStorage:FindFirstChild("Night",true)
+local function readGameClockText()
+    local pg = client:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    for _, d in ipairs(pg:GetDescendants()) do
+        if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Visible then
+            local s = tostring(d.Text or "")
+            if s:match("^%s*%d+%s*m%s+%d+%s*s%s*$") or s:match("^%s*%d+%s*s%s*$") then
+                return s
+            end
+        end
+    end
+    return nil
+end
 
 local function isNightTime()
-    if nightDetector and nightDetector:IsA("BoolValue") and nightDetector.Value then return true end
+    local nightDetector = ReplicatedStorage:FindFirstChild("Night", true)
+    if nightDetector and nightDetector:IsA("BoolValue") then return nightDetector.Value end
+    for _, d in ipairs(ReplicatedStorage:GetDescendants()) do
+        local n = d.Name:lower()
+        if d:IsA("BoolValue") and (n:find("night") or n:find("moon")) then return d.Value end
+        if d:IsA("StringValue") and (n:find("weather") or n:find("event")) then
+            local v = d.Value:lower()
+            if v:find("night") or v:find("moon") or v:find("blood") then return true end
+        end
+    end
     local t = Lighting.ClockTime
-    return t<6 or t>18
+    return t < 6 or t >= 18
 end
 
 -- ===========================================================================
@@ -725,10 +803,18 @@ local function getBackpackSeeds()
 end
 
 local function getBackpackSprinklers()
-    local s={}; local bp=client:FindFirstChild("Backpack")
-    if bp then for _,t in ipairs(bp:GetChildren()) do
-        if t:IsA("Tool") and t.Name:lower():find("sprinkler") and not table.find(s,t.Name) then s[#s+1]=t.Name end
-    end end; return s
+    local s = {}
+    local function add(t)
+        if t and t:IsA("Tool") and tostring(t.Name):lower():find("sprinkler", 1, true) then
+            local n = cleanItemName(t.Name)
+            if n ~= "" and not table.find(s, n) then s[#s + 1] = n end
+        end
+    end
+    local bp = client:FindFirstChild("Backpack")
+    if bp then for _, t in ipairs(bp:GetChildren()) do add(t) end end
+    if client.Character then for _, t in ipairs(client.Character:GetChildren()) do add(t) end end
+    table.sort(s)
+    return s
 end
 
 local function getBackpackGear()
@@ -820,15 +906,13 @@ GardenTab:createDropdown({Name="Harvest Fruits",flagName="AH_list",multi=true,Li
 GardenTab:createDropdown({Name="Harvest Blacklist",flagName="AH_blist",multi=true,List=GD.seeds})
 GardenTab:createDropdown({Name="Harvest Priority",flagName="HP",List={"Highest Value","Closest","Oldest"}})
 GardenTab:createToggle({Name="Stop When Full",flagName="AH_fullstop",Flag=false})
-GardenTab:createSlider({Name="Max Harvest Count",flagName="AH_max",value=30,minValue=1,maxValue=200})
-
 ciToggle(GardenTab,{Name="Auto Harvest",flagName="AH",tag="AH",delay=0.05,Step=function()
     local st=Library.Flags["AH_type"]
     if st=="None" then return end
     authenticatePlot()
     enforceGeofence("c")
     if Library.Flags["AH_fullstop"] and client:GetAttribute("BackpackFull") then return end
-    local max=Library.Flags["AH_max"] or 30
+    local max=500
     local ff=nil; local bl=nil
     if st=="Selected" then ff=Library.Flags["AH_list"] elseif st=="Blacklist" then bl=Library.Flags["AH_blist"] end
     local pr=Library.Flags["HP"] or "Highest Value"
@@ -861,12 +945,11 @@ ciToggle(GardenTab,{Name="Auto Open Items",flagName="Open",tag="Open",delay=1.5,
     end end
 end})
 
-GardenTab:createDropdown({Name="Auto Sell",flagName="Sell_type",List={"None","All","Selected"}})
-GardenTab:createDropdown({Name="Sell Fruits",flagName="Sell_list",multi=true,List=GD.seeds})
-GardenTab:createToggle({Name="Ignore Favorites",flagName="Sell_noFav",Flag=false})
-ciToggle(GardenTab,{Name="Auto Sell",flagName="AS",tag="AS",delay=0.8,Step=function()
-    local st=Library.Flags["Sell_type"]; if st=="None" then return end
-    if Library.Flags["Sell_noFav"] then return end
+GardenTab:createDropdown({Name="Auto Sell",flagName="Sell_type",List={"None","Always","When Full"}})
+ciToggle(GardenTab,{Name="Auto Sell",flagName="AS",tag="AS",delay=0.6,Step=function()
+    local st = firstSelected(Library.Flags["Sell_type"], "None")
+    if st == "None" then return end
+    if st == "When Full" and not isBackpackFull() then return end
     sellAllItems()
 end})
 
@@ -890,20 +973,20 @@ ciToggle(GardenTab,{Name="Auto Remove",flagName="RM",tag="RM",delay=0.6,Step=fun
     local cand=getBestCandidates(200,ff,nil,nil,true,bl)
     if st=="Low KG" then local fc={}; for _,c in ipairs(cand) do if c.score<mx then fc[#fc+1]=c end end; cand=fc end
     local s=findTool("shovel") or findTool("Shovel")
-    for _,c in ipairs(cand) do if not Library.Flags["RM"] then break end; if c.plantId then shovelPlantAction(c.plantId,c.fruitId,s); task.wait(0.05) end end
+    for _,c in ipairs(cand) do if not Library.Flags["RM"] then break end; if c.plantId then shovelPlantAction(c.plantId,c.fruitId,s); task.wait(0.012) end end
 end})
 
 GardenTab:createButton({Name="Remove Once",Callback=function()
     authenticatePlot(); if not PL.plantsFolder then NF("Cleanup","No garden found.","warning"); return end
     local s=findTool("shovel") or findTool("Shovel"); local cnt=0
-    for _,m in ipairs(PL.plantsFolder:GetChildren()) do if m:IsA("Model") and m.PrimaryPart then local pid,fid=getPlantIdentifiers(m); shovelPlantAction(pid,fid,s); cnt=cnt+1; task.wait(0.05) end end
+    for _,m in ipairs(PL.plantsFolder:GetChildren()) do if m:IsA("Model") and m.PrimaryPart then local pid,fid=getPlantIdentifiers(m); shovelPlantAction(pid,fid,s); cnt=cnt+1; task.wait(0.012) end end
     NF("Plot Cleanup","Removed "..cnt.." plants.","info")
 end})
 
 GardenTab:createButton({Name="Shovel Once",Callback=function()
     authenticatePlot(); if not PL.plantsFolder then NF("Shovel","No garden found.","warning"); return end
     local s=findTool("shovel") or findTool("Shovel"); local cnt=0
-    for _,m in ipairs(PL.plantsFolder:GetChildren()) do if m:IsA("Model") and m.PrimaryPart then local pid,fid=getPlantIdentifiers(m); shovelPlantAction(pid,fid,s); cnt=cnt+1; task.wait(0.05) end end
+    for _,m in ipairs(PL.plantsFolder:GetChildren()) do if m:IsA("Model") and m.PrimaryPart then local pid,fid=getPlantIdentifiers(m); shovelPlantAction(pid,fid,s); cnt=cnt+1; task.wait(0.012) end end
     NF("Shovel","Dug up "..cnt.." plants.","info")
 end})
 
@@ -927,24 +1010,20 @@ GardenTab:createDropdown({Name="Water Priority",flagName="AW_prio",List={"All Ne
 GardenTab:createDropdown({Name="Water Rarities",flagName="AW_rar",multi=true,List=RTS})
 
 -- ============================================
--- Gear Use
+-- Sprinklers
 -- ============================================
-GardenTab:createLabel({Name="Gear Use",Special=true})
+GardenTab:createLabel({Name="Sprinklers",Special=true})
 
-GardenTab:createDropdown({Name="Gear Types",flagName="GU_type",List={"None","All","Selected","Sprinklers Only"}})
-GardenTab:createDropdown({Name="Gear To Use",flagName="GU_list",multi=true,List=GD.gears})
-GardenTab:createDropdown({Name="Target Priority",flagName="GU_prio",List={"Best Value","Closest"}})
-GardenTab:createToggle({Name="Cluster Optimize",flagName="GU_cluster",Flag=false})
-GardenTab:createDropdown({Name="Target Rarities",flagName="GU_rar",multi=true,List=RTS})
-GardenTab:createSlider({Name="Min Value",flagName="GU_minVal",value=0,minValue=0,maxValue=100000})
-
-ciToggle(GardenTab,{Name="Auto Use Gear",flagName="GU",tag="GU",delay=0.55,Step=function()
-    local st=Library.Flags["GU_type"]; if st=="None" then return end
+GardenTab:createDropdown({Name="Sprinkler Type",flagName="SP_list",multi=true,List=GD.sprinklers})
+ciToggle(GardenTab,{Name="Auto Place Sprinklers",flagName="SP",tag="SP",delay=0.35,Step=function()
     authenticatePlot(); enforceGeofence("p")
-    local ss={}
-    if st=="All" or st=="Sprinklers Only" then ss=getBackpackSprinklers()
-    elseif st=="Selected" then local sl=Library.Flags["GU_list"]; if sl then ss=typeof(sl)=="table" and sl or {sl} end end
-    for _,n in ipairs(ss) do if not Library.Flags["GU"] then break end; if n=="" then continue end; local pos=getPlacementPosition(3.6); if pos then placeSprinklerAction(n,pos); task.wait(0.07) end end
+    local selected = asSelectionList(Library.Flags["SP_list"])
+    local sprinklers = (#selected > 0) and selected or getBackpackSprinklers()
+    for _, n in ipairs(sprinklers) do
+        if not Library.Flags["SP"] then break end
+        local pos = getPlacementPosition(4.0)
+        if pos and placeSprinklerAction(n, pos) then task.wait(0.08) end
+    end
 end})
 
 -- ============================================
@@ -952,47 +1031,53 @@ end})
 -- ============================================
 GardenTab:createLabel({Name="Auto Collect Seeds",Special=true})
 
-GardenTab:createDropdown({Name="Auto Collect...",flagName="ACS_type",List={"None","All","Rainbow Only","Gold Only"}})
-ciToggle(GardenTab,{Name="Auto Collect Seeds",flagName="ACS",tag="ACS",delay=1.0,Step=function()
-    local st=Library.Flags["ACS_type"]; if st=="None" then return end
-    for _,p in ipairs(Workspace:GetDescendants()) do
-        if not Library.Flags["ACS"] then break end
-        if p:IsA("ProximityPrompt") then
-            local t=(p.Name.." "..(p.ActionText or "").." "..(p.ObjectText or "")):lower()
-            local ok=false
-            if st=="All" then ok=t:find("seed") or t:find("rainbow") or t:find("gold") or t:find("claim") or t:find("special")
-            elseif st=="Rainbow Only" then ok=t:find("rainbow")
-            elseif st=="Gold Only" then ok=t:find("gold") end
-            if ok then local m=p:FindFirstAncestorWhichIsA("Model") or p.Parent; if m then TP(m:GetPivot().Position); task.wait(0.12); task.spawn(HP,p); task.wait(0.4) end
+GardenTab:createDropdown({Name="Auto Collect",flagName="ACS_type",List={"None","All","Rainbow Only","Gold Only"}})
+local collectPromptCache, collectCacheAt = {}, 0
+local function refreshCollectPrompts(force)
+    if not force and os.clock() - collectCacheAt < 4 then return collectPromptCache end
+    collectCacheAt = os.clock()
+    table.clear(collectPromptCache)
+    local tagged = CollectionService:GetTagged("SeedPrompt")
+    for _, p in ipairs(tagged) do if p:IsA("ProximityPrompt") then collectPromptCache[#collectPromptCache + 1] = p end end
+    if #collectPromptCache == 0 then
+        for _, p in ipairs(Workspace:GetDescendants()) do
+            if p:IsA("ProximityPrompt") then
+                local t = (p.Name .. " " .. (p.ActionText or "") .. " " .. (p.ObjectText or "")):lower()
+                if t:find("seed", 1, true) or t:find("rainbow", 1, true) or t:find("gold", 1, true) or t:find("claim", 1, true) then
+                    collectPromptCache[#collectPromptCache + 1] = p
+                end
             end
         end
     end
-end})
+    return collectPromptCache
+end
 
--- ============================================
--- Upgrades & Utilities
--- ============================================
-GardenTab:createLabel({Name="Upgrades & Utilities",Special=true})
-
-ciToggle(GardenTab,{Name="Auto Expand Inventory",flagName="Up_Inv",tag="Up_Inv",delay=2.0,Step=function()
-    local bp=client:FindFirstChild("Backpack"); if bp and bp:GetAttribute("BackpackFull") then sellAllItems(); task.wait(0.5) end
-end})
-GardenTab:createToggle({Name="Auto Max Pet Slots",flagName="Up_Pet",Flag=false})
-GardenTab:createToggle({Name="Auto Expand Plot",flagName="Up_Plot",Flag=false})
-
-ciToggle(GardenTab,{Name="Fling Aura",flagName="FA",tag="FA",delay=0.1,Step=function()
-    local mr=client.Character and client.Character:FindFirstChild("HumanoidRootPart"); if not mr then return end
-    for _,p in ipairs(Players:GetPlayers()) do if p==client then continue end
-        local r=p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-        if r and (r.Position-mr.Position).Magnitude<15 then r.AssemblyLinearVelocity=(r.Position-mr.Position).Unit*200+Vector3.new(0,120,0) end
-    end
-end})
-
-GardenTab:createLabel({Name="Auto Fertilize",Special=true})
-ciToggle(GardenTab,{Name="Auto Fertilize Plants",flagName="Fert",tag="Fert",delay=0.9,Step=function()
-    authenticatePlot(); if not PL.plantsFolder then return end
-    for _,m in ipairs(PL.plantsFolder:GetChildren()) do if not Library.Flags["Fert"] then break end
-        if m:IsA("Model") and m.PrimaryPart then local p=m:FindFirstChild("FertilizePrompt",true) or m:FindFirstChild("GrowPrompt",true); if p then task.spawn(HP,p); task.wait(0.03) end end
+ciToggle(GardenTab,{Name="Auto Collect Seeds",flagName="ACS",tag="ACS",delay=0.25,Step=function()
+    local st = firstSelected(Library.Flags["ACS_type"], "None")
+    if st == "None" then return end
+    local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local prompts = refreshCollectPrompts(false)
+    table.sort(prompts, function(a, b)
+        local ap = a.Parent and a.Parent:IsA("BasePart") and a.Parent.Position or (a:FindFirstAncestorWhichIsA("Model") and a:FindFirstAncestorWhichIsA("Model"):GetPivot().Position) or hrp.Position
+        local bp = b.Parent and b.Parent:IsA("BasePart") and b.Parent.Position or (b:FindFirstAncestorWhichIsA("Model") and b:FindFirstAncestorWhichIsA("Model"):GetPivot().Position) or hrp.Position
+        return (ap - hrp.Position).Magnitude < (bp - hrp.Position).Magnitude
+    end)
+    local used = 0
+    for _, p in ipairs(prompts) do
+        if not Library.Flags["ACS"] or used >= 8 then break end
+        if p and p.Parent and p.Enabled ~= false then
+            local t = (p.Name .. " " .. (p.ActionText or "") .. " " .. (p.ObjectText or "")):lower()
+            local ok = st == "All" or (st == "Rainbow Only" and t:find("rainbow", 1, true)) or (st == "Gold Only" and t:find("gold", 1, true))
+            if ok then
+                local m = p:FindFirstAncestorWhichIsA("Model") or p.Parent
+                local pos = m and (m:IsA("Model") and m:GetPivot().Position or (m.Position or nil))
+                if pos and (pos - hrp.Position).Magnitude > 12 then TP(pos) task.wait(0.05) end
+                HP(p)
+                used = used + 1
+                task.wait(0.03)
+            end
+        end
     end
 end})
 
@@ -1023,41 +1108,58 @@ local StealerTab = UI:CreateSection("Stealer")
 
 StealerTab:createLabel({Name="Auto Steal Targets",Special=true})
 
-ciToggle(StealerTab,{Name="Auto Steal",flagName="ST",tag="ST",delay=1.3,Step=function()
-    if not isNightTime() then return end
-    local sr=Library.Flags["ST_rar"]; local sn=Library.Flags["ST_names"]
-    local mw=Library.Flags["ST_mw"]; local mb=Library.Flags["ST_mb"]
-    local mk=Library.Flags["ST_minKG"] or 0; local cp=Library.Flags["ST_carry"] or 50
-    local prio=Library.Flags["ST_prio"] or "Value"
-    local cand=getBestCandidates(200,sn,mw,sr,false)
-    -- Mutation blacklist
-    if mb and #mb>0 then
-        local fc={}
-        for _,c in ipairs(cand) do if c.model then local mut=c.model:GetAttribute("Mutation"); local ok=true; if mut then for _,b in ipairs(mb) do if mut:lower()==b:lower() then ok=false; break end end end; if ok then fc[#fc+1]=c end else fc[#fc+1]=c end end
-        cand=fc
+ciToggle(StealerTab,{Name="Auto Steal",flagName="ST",tag="ST",delay=0.65,Step=function()
+    local sr = asSelectionList(Library.Flags["ST_rar"])
+    local sn = asSelectionList(Library.Flags["ST_names"])
+    local mw = asSelectionList(Library.Flags["ST_mw"])
+    local mb = asSelectionList(Library.Flags["ST_mb"])
+    local mk = Library.Flags["ST_minKG"] or 0
+    local cp = Library.Flags["ST_carry"] or 50
+    local prio = firstSelected(Library.Flags["ST_prio"], "Value")
+    local cand = getBestCandidates(300, sn, mw, sr, false)
+
+    local filtered = {}
+    for _, c in ipairs(cand) do
+        if c.model and not c.isOwned then
+            local mut = tostring(c.model:GetAttribute("Mutation") or ""):lower()
+            local blocked = false
+            for _, b in ipairs(mb) do if mut == tostring(b):lower() then blocked = true break end end
+            if not blocked and (mk <= 0 or c.score >= mk) then filtered[#filtered + 1] = c end
+        end
     end
-    -- Min KG filter
-    if mk>0 then local fc={}; for _,c in ipairs(cand) do if c.score>=mk then fc[#fc+1]=c end end; cand=fc end
-    -- Priority sort
-    if prio=="Value" then table.sort(cand,function(a,b) return a.score>b.score end)
-    elseif prio=="Closest" then table.sort(cand,function(a,b) return a.distance<b.distance end) end
-    local cnt=0
-    for _,c in ipairs(cand) do
-        if not Library.Flags["ST"] then break end
-        if cnt>=cp then break end
+    cand = filtered
+
+    if prio == "Value" then
+        table.sort(cand, function(a,b) return a.score > b.score end)
+    elseif prio == "Closest" then
+        table.sort(cand, function(a,b) return a.distance < b.distance end)
+    elseif prio == "Random" then
+        for i = #cand, 2, -1 do local j = math.random(i); cand[i], cand[j] = cand[j], cand[i] end
+    end
+
+    local cnt = 0
+    for _, c in ipairs(cand) do
+        if not Library.Flags["ST"] or cnt >= cp then break end
         if c.model then
-            local ouid=getPlotOwner(c.model.Parent and c.model.Parent.Parent or c.model.Parent)
-            if ouid then
+            local plot = c.model
+            while plot and plot.Parent and plot.Parent ~= Workspace and not getPlotOwner(plot) do plot = plot.Parent end
+            local ouid = plot and getPlotOwner(plot)
+            if ouid and ouid ~= client.UserId then
                 if Library.Flags["ST_skipF"] then local ok,isf=pcall(function() return client:IsFriendsWith(ouid) end); if ok and isf then continue end end
                 if Library.Flags["ST_avoidO"] then local o=Players:GetPlayerByUserId(ouid); if o and o.Character and o.Character:FindFirstChild("HumanoidRootPart") and (c.model:GetPivot().Position-o.Character.HumanoidRootPart.Position).Magnitude<20 then continue end end
                 if Library.Flags["ST_flingO"] then local o=Players:GetPlayerByUserId(ouid); if o and o.Character and o.Character:FindFirstChild("HumanoidRootPart") then o.Character.HumanoidRootPart.AssemblyLinearVelocity=(c.model:GetPivot().Position-o.Character.HumanoidRootPart.Position).Unit*250+Vector3.new(0,150,0) end end
-                TP(c.model:GetPivot().Position); task.wait(0.1)
-                beginStealAction(ouid,c.plantId,c.fruitId); completeStealAction()
-                local pr=c.model:FindFirstChild("HarvestPrompt",true); if pr then task.spawn(HP,pr) end
-                task.spawn(harvestPlant,c.plantId,c.fruitId)
-                cnt=cnt+1; task.wait(0.25)
+                TP(c.model:GetPivot().Position)
+                task.wait(0.08)
+                beginStealAction(ouid, c.plantId, c.fruitId)
+                task.wait(0.04)
+                completeStealAction()
+                local pr = c.model:FindFirstChild("HarvestPrompt", true)
+                if pr then task.spawn(HP, pr) end
+                if c.plantId then task.spawn(harvestPlant, c.plantId, c.fruitId) end
+                cnt = cnt + 1
+                task.wait(0.16)
             end
-        elseif c.plantId then task.spawn(harvestPlant,c.plantId,c.fruitId); cnt=cnt+1; task.wait(0.2) end
+        end
     end
 end})
 
@@ -1072,55 +1174,6 @@ StealerTab:createToggle({Name="Skip Friends",flagName="ST_skipF",Flag=false})
 StealerTab:createToggle({Name="Avoid Owners",flagName="ST_avoidO",Flag=false})
 StealerTab:createToggle({Name="Fling Owner",flagName="ST_flingO",Flag=true})
 
--- ============================================
--- Anti Steal Guard
--- ============================================
-StealerTab:createLabel({Name="Anti Steal Guard",Special=true})
-
-ciToggle(StealerTab,{Name="Anti Steal",flagName="ASG_steal",tag="ASG_steal",delay=0.1,Flag=true,Step=function()
-    local mr=client.Character and client.Character:FindFirstChild("HumanoidRootPart"); if not mr then return end
-    for _,p in ipairs(Players:GetPlayers()) do if p==client then continue end
-        local r=p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-        if r and (r.Position-mr.Position).Magnitude<8 then r.AssemblyLinearVelocity=(r.Position-mr.Position).Unit*180+Vector3.new(0,100,0) end
-    end
-end})
-
-ciToggle(StealerTab,{Name="Anti Hit",flagName="ASG_hit",tag="ASG_hit",delay=0.1,Flag=true,Step=function()
-    local c=client.Character; if not c then return end
-    for _,ch in ipairs(c:GetDescendants()) do if ch:IsA("BasePart") then ch.CanCollide=false; ch.CanTouch=false end end
-    for _,p in ipairs(Players:GetPlayers()) do if p==client then continue end; if p.Character then
-        for _,ch in ipairs(p.Character:GetDescendants()) do if ch:IsA("BasePart") then ch.CanCollide=false; ch.CanTouch=false end end
-    end end
-end})
-
-ciToggle(StealerTab,{Name="Anti Fling",flagName="ASG_fling",tag="ASG_fling",delay=0.1,Flag=true,Step=function()
-    local mr=client.Character and client.Character:FindFirstChild("HumanoidRootPart")
-    if mr then if mr.AssemblyLinearVelocity.Magnitude>200 then mr.AssemblyLinearVelocity=Vector3.zero; mr.AssemblyAngularVelocity=Vector3.zero end end
-end})
-
--- ============================================
--- Stealer Safety
--- ============================================
-StealerTab:createLabel({Name="Stealer Safety",Special=true})
-
-ciToggle(StealerTab,{Name="Anti Bee Effect",flagName="SAFE_bee",tag="SAFE_bee",delay=2.0,Flag=true,Step=function()
-    local c=client.Character; if c then for _,ch in ipairs(c:GetChildren()) do
-        if ch:IsA("Script") or ch:IsA("LocalScript") then local n=ch.Name:lower()
-            if n:find("bee") or n:find("sting") or n:find("poison") or n:find("thorn") then ch.Disabled=true; ch:Destroy() end
-        end
-    end end
-end})
-
-ciToggle(StealerTab,{Name="Ragdoll Recovery",flagName="SAFE_ragdoll",tag="SAFE_ragdoll",delay=0.5,Flag=true,Step=function()
-    local h=client.Character and client.Character:FindFirstChildOfClass("Humanoid")
-    if h then h:SetStateEnabled(Enum.HumanoidStateType.FallingDown,false); h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,false) end
-end})
-
-ciToggle(StealerTab,{Name="Auto Rejoin If Dead",flagName="SAFE_rejoin",tag="SAFE_rejoin",delay=3.0,Flag=true,Step=function()
-    local h=client.Character and client.Character:FindFirstChildOfClass("Humanoid")
-    if h and h.Health<=0 then task.wait(3); pcall(function() TeleportService:Teleport(game.PlaceId,client) end) end
-end})
-
 -- ##############################################################################
 -- ##############################################################################
 -- SHOP TAB
@@ -1128,21 +1181,22 @@ end})
 -- ##############################################################################
 local ShopTab = UI:CreateSection("Market")
 
-ShopTab:createLabel({Name="Seed & Gear Shop",Special=true})
+ShopTab:createLabel({Name="Seed Shop",Special=true})
 
 ShopTab:createDropdown({Name="Auto Seeds",flagName="SH_seeds_type",List={"None","All","Selected"}})
 ShopTab:createDropdown({Name="Seeds To Buy",flagName="SH_seeds",multi=true,List=GD.seeds})
 ciToggle(ShopTab,{Name="Auto Buy Seeds",flagName="SH_bs",tag="SH_bs",delay=1.5,Step=function()
     local st=Library.Flags["SH_seeds_type"]; if st=="None" then return end
-    local lst={}; if st=="All" then lst=GD.seeds elseif st=="Selected" then lst=Library.Flags["SH_seeds"] or {}; lst=typeof(lst)=="table" and lst or {lst} end
+    local lst={}; if st=="All" then lst=GD.seeds elseif st=="Selected" then lst=asSelectionList(Library.Flags["SH_seeds"]) end
     for _,n in ipairs(lst) do if not Library.Flags["SH_bs"] then break end; if n~="" then buySeedItem(n); task.wait(0.06) end end
 end})
 
+ShopTab:createLabel({Name="Gear Shop",Special=true})
 ShopTab:createDropdown({Name="Auto Gears",flagName="SH_gears_type",List={"None","All","Selected"}})
 ShopTab:createDropdown({Name="Gears To Buy",flagName="SH_gears",multi=true,List=GD.gears})
 ciToggle(ShopTab,{Name="Auto Buy Gears",flagName="SH_bg",tag="SH_bg",delay=1.5,Step=function()
     local st=Library.Flags["SH_gears_type"]; if st=="None" then return end
-    local lst={}; if st=="All" then lst=GD.gears elseif st=="Selected" then lst=Library.Flags["SH_gears"] or {}; lst=typeof(lst)=="table" and lst or {lst} end
+    local lst={}; if st=="All" then lst=GD.gears elseif st=="Selected" then lst=asSelectionList(Library.Flags["SH_gears"]) end
     for _,n in ipairs(lst) do if not Library.Flags["SH_bg"] then break end; if n~="" then buyGearItem(n); task.wait(0.06) end end
 end})
 
@@ -1263,13 +1317,6 @@ ciToggle(MiscTab,{Name="Anti AFK & Knockback Shield",flagName="AntiAFK",tag="Ant
     end end
 end})
 
-MiscTab:createLabel({Name="Gear Management",Special=true})
-ciToggle(MiscTab,{Name="Auto Equip Best Gear",flagName="EqGear",tag="EqGear",delay=2.5,Step=function()
-    for _,n in ipairs(GD.gears) do if not Library.Flags["EqGear"] then break end; local t=findTool(n); if t then equipGearAction(n); task.wait(0.1) end end
-end})
-ciToggle(MiscTab,{Name="Auto Unequip All Gear",flagName="UnEqGear",tag="UnEqGear",delay=0.3,Step=function()
-    unequipGearAction()
-end})
 
 MiscTab:createLabel({Name="Pet Management",Special=true})
 ciToggle(MiscTab,{Name="Auto Equip Best Pets",flagName="EqPets",tag="EqPets",delay=2.5,Step=function()
@@ -1797,6 +1844,135 @@ local SystemState = {
     totalValue = 0
 }
 
+local function formatSeconds(seconds)
+    seconds = math.max(0, math.floor(seconds or 0))
+    local h = math.floor(seconds / 3600)
+    local m = math.floor((seconds % 3600) / 60)
+    local s = seconds % 60
+    if h > 0 then return string.format("%dh %02dm", h, m) end
+    if m > 0 then return string.format("%dm %02ds", m, s) end
+    return tostring(s) .. "s"
+end
+
+local function parseDurationText(text)
+    local s = tostring(text or ""):lower()
+    local h = tonumber(s:match("(%d+)%s*h")) or 0
+    local m = tonumber(s:match("(%d+)%s*m")) or 0
+    local sec = tonumber(s:match("(%d+)%s*s")) or 0
+    if h == 0 and m == 0 and sec == 0 then return nil end
+    return h * 3600 + m * 60 + sec
+end
+
+local function getSeedShopRestockSeconds()
+    local pg = client:FindFirstChild("PlayerGui")
+    local seedShop = pg and pg:FindFirstChild("SeedShop")
+    if not seedShop then return nil end
+    for _, d in ipairs(seedShop:GetDescendants()) do
+        if d:IsA("TextLabel") or d:IsA("TextButton") then
+            local txt = tostring(d.Text or "")
+            if txt:lower():find("restock", 1, true) then
+                local seconds = parseDurationText(txt)
+                if seconds then return seconds end
+            end
+        end
+    end
+    return nil
+end
+
+local function readWeatherTextFromGui()
+    local pg = client:FindFirstChild("PlayerGui")
+    if not pg then return {} end
+    local found = {}
+    for _, d in ipairs(pg:GetDescendants()) do
+        if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Visible then
+            local txt = tostring(d.Text or "")
+            local low = txt:lower()
+            for _, info in ipairs({
+                {"Sunset", "sunset"}, {"Moon", "moon"}, {"Day", "day"},
+                {"Rainbow", "rainbow"}, {"Bloodmoon", "blood"}, {"Goldmoon", "gold"},
+            }) do
+                if not found[info[1]] and low:find(info[2], 1, true) and (low:find("in ", 1, true) or low:match("%d+%s*m")) then
+                    found[info[1]] = txt:gsub("%s+", " ")
+                end
+            end
+        end
+    end
+    return found
+end
+
+local function updateSeedShopPredictionUI()
+    local pg = client:FindFirstChild("PlayerGui")
+    local seedShop = pg and pg:FindFirstChild("SeedShop")
+    local frame = seedShop and seedShop:FindFirstChild("Frame")
+    if not frame then return end
+
+    local panel = frame:FindFirstChild("HQSeedPredictions")
+    if not panel then
+        panel = Instance.new("Frame")
+        panel.Name = "HQSeedPredictions"
+        panel.Size = UDim2.new(0, 240, 0, 122)
+        panel.Position = UDim2.new(1, -252, 1, -132)
+        panel.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+        panel.BackgroundTransparency = 0.12
+        panel.BorderSizePixel = 1
+        panel.BorderColor3 = Color3.fromRGB(80, 180, 120)
+        panel.Parent = frame
+
+        local title = Instance.new("TextLabel")
+        title.Name = "Title"
+        title.Size = UDim2.new(1, -10, 0, 20)
+        title.Position = UDim2.new(0, 5, 0, 4)
+        title.BackgroundTransparency = 1
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 12
+        title.TextColor3 = Color3.fromRGB(180, 255, 190)
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.Parent = panel
+
+        local body = Instance.new("TextLabel")
+        body.Name = "Body"
+        body.Size = UDim2.new(1, -10, 1, -28)
+        body.Position = UDim2.new(0, 5, 0, 26)
+        body.BackgroundTransparency = 1
+        body.Font = Enum.Font.GothamMedium
+        body.TextSize = 10
+        body.TextWrapped = true
+        body.TextYAlignment = Enum.TextYAlignment.Top
+        body.TextXAlignment = Enum.TextXAlignment.Left
+        body.TextColor3 = Color3.fromRGB(235, 235, 235)
+        body.Parent = panel
+    end
+
+    local restock = getSeedShopRestockSeconds()
+    local title = panel:FindFirstChild("Title")
+    local body = panel:FindFirstChild("Body")
+    if title then title.Text = "HQ Seed Predictor" .. (restock and (" | restock " .. formatSeconds(restock)) or "") end
+
+    local stockFolder = ReplicatedStorage:FindFirstChild("StockValues", true)
+    local seedShopValues = stockFolder and stockFolder:FindFirstChild("SeedShop")
+    local items = seedShopValues and seedShopValues:FindFirstChild("Items")
+    local lines = {}
+    if items then
+        local rows = {}
+        for _, item in ipairs(items:GetChildren()) do
+            if item:IsA("NumberValue") then rows[#rows + 1] = {name = item.Name, count = item.Value} end
+        end
+        table.sort(rows, function(a, b)
+            if (a.count > 0) ~= (b.count > 0) then return a.count > 0 end
+            return a.name < b.name
+        end)
+        for i = 1, math.min(5, #rows) do
+            local row = rows[i]
+            if row.count > 0 then
+                lines[#lines + 1] = row.name .. " x" .. tostring(row.count)
+            else
+                lines[#lines + 1] = row.name .. " next " .. (restock and formatSeconds(restock) or "soon")
+            end
+        end
+    end
+    if body then body.Text = (#lines > 0 and table.concat(lines, "\n") or "Open Seed Shop to sync predictions.") end
+end
+
 RC(task.spawn(function()
     while Alive do
         task.wait(1.2)
@@ -1807,23 +1983,25 @@ RC(task.spawn(function()
             local bloodmoonRemaining = 3600 - (nowReal % 3600)
             local goldmoonRemaining = 7200 - (nowReal % 7200)
 
+            local guiWeather = readWeatherTextFromGui()
             if WeatherWidgets["Sunset"] then
-                WeatherWidgets["Sunset"].Text = "Sunset\n" .. string.format("in %.0fm", rainbowRemaining/60)
+                WeatherWidgets["Sunset"].Text = guiWeather.Sunset or ("Sunset\n" .. formatSeconds(rainbowRemaining))
             end
             if WeatherWidgets["Moon"] then
-                WeatherWidgets["Moon"].Text = "Moon\n" .. string.format("in %.0fm", bloodmoonRemaining/60)
+                WeatherWidgets["Moon"].Text = guiWeather.Moon or ("Moon\n" .. (isNightTime() and "active" or formatSeconds(bloodmoonRemaining)))
             end
             if WeatherWidgets["Day"] then
-                WeatherWidgets["Day"].Text = "Day\n" .. string.format("in %.0fm", (nowReal%86400)/60)
+                local clock = readGameClockText()
+                WeatherWidgets["Day"].Text = guiWeather.Day or (clock and ("Day\n" .. clock) or ("Day\n" .. formatSeconds(nowReal % 86400)))
             end
             if WeatherWidgets["Rainbow"] then
-                WeatherWidgets["Rainbow"].Text = "Rainbow\n" .. string.format("in %.0fm", rainbowRemaining/60)
+                WeatherWidgets["Rainbow"].Text = guiWeather.Rainbow or ("Rainbow\n" .. formatSeconds(rainbowRemaining))
             end
             if WeatherWidgets["Bloodmoon"] then
-                WeatherWidgets["Bloodmoon"].Text = "Bloodmoon\n" .. string.format("in %.0fm", bloodmoonRemaining/60)
+                WeatherWidgets["Bloodmoon"].Text = guiWeather.Bloodmoon or ("Bloodmoon\n" .. formatSeconds(bloodmoonRemaining))
             end
             if WeatherWidgets["Goldmoon"] then
-                WeatherWidgets["Goldmoon"].Text = "Goldmoon\n" .. string.format("in %.0fm", goldmoonRemaining/60)
+                WeatherWidgets["Goldmoon"].Text = guiWeather.Goldmoon or ("Goldmoon\n" .. formatSeconds(goldmoonRemaining))
             end
 
             -- Update weather status
@@ -1866,8 +2044,11 @@ RC(task.spawn(function()
                 end
             end
 
-            SystemState.restockStatus = "Monitoring..."
-            SystemState.trendingItem = "Check shops"
+            updateSeedShopPredictionUI()
+
+            local restock = getSeedShopRestockSeconds()
+            SystemState.restockStatus = restock and ("Seed restock in " .. formatSeconds(restock)) or "Monitoring..."
+            SystemState.trendingItem = "Seed shop synced"
 
             -- Update status bar
             StatusLabel.Text = string.format("GardenHQ | %s | Night: %s | Plot: %s",
@@ -2017,6 +2198,7 @@ PredictorsTab:createButton({Name="Check Weather Status",Callback=function()
     local rainbowSec = 2700 - (nowReal % 2700)
     local bloodmoonSec = 3600 - (nowReal % 3600)
     local goldmoonSec = 7200 - (nowReal % 7200)
+    local guiWeather = readWeatherTextFromGui()
 
     local weatherData = ReplicatedStorage:FindFirstChild("Weather",true) or ReplicatedStorage:FindFirstChild("Environment",true)
     local currentWeather = "Unknown"
@@ -2027,12 +2209,13 @@ PredictorsTab:createButton({Name="Check Weather Status",Callback=function()
 
     NF("Weather Predictions",
         string.format(
-            "Current: %s\nNight: %s\nRainbow: in %.1f min\nBloodmoon: in %.1f min\nGoldmoon: in %.1f min",
+            "Current: %s\nNight: %s\nDay: %s\nRainbow: %s\nBloodmoon: %s\nGoldmoon: %s",
             currentWeather,
             isNightTime() and "Yes" or "No",
-            rainbowSec/60,
-            bloodmoonSec/60,
-            goldmoonSec/60
+            guiWeather.Day or (readGameClockText() or "syncing"),
+            guiWeather.Rainbow or formatSeconds(rainbowSec),
+            guiWeather.Bloodmoon or formatSeconds(bloodmoonSec),
+            guiWeather.Goldmoon or formatSeconds(goldmoonSec)
         ),
         "info"
     )
