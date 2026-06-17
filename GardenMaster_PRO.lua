@@ -88,34 +88,43 @@ pcall(function()
 end)
 
 -- ===========================================================================
--- LOOP TRACKER (binds connections to feature tags for cleanup)
+-- INTERVAL HELPER (Versus Airlines template pattern)
 -- ===========================================================================
-local _loopTags = {}
+local function interval(tag, flag, delayTime, callback)
+    Library:CleanupConnectionsByTag(tag)
+    delayTime = math.max(tonumber(delayTime) or 0.1, 0.05)
+    if not Library.Flags[flag] then return end
 
-local function BindLoop(tag, conn)
-    _loopTags[tag] = _loopTags[tag] or {}
-    _loopTags[tag][#_loopTags[tag] + 1] = conn
-    Track(conn)
-end
-
-local function UnbindLoop(tag)
-    if _loopTags[tag] then
-        for _, c in _loopTags[tag] do
-            if typeof(c) == "RBXScriptConnection" then pcall(function() c:Disconnect() end) end
+    local last = 0
+    local running = false
+    local conn = RunService.Heartbeat:Connect(function()
+        if not Library.Flags[flag] then
+            Library:CleanupConnectionsByTag(tag)
+            return
         end
-        _loopTags[tag] = nil
-    end
+        local current = os.clock()
+        if running or current - last < delayTime then
+            return
+        end
+        last = current
+        running = true
+        task.spawn(function()
+            local ok, err = pcall(callback)
+            if not ok then warn("[interval:" .. tostring(tag) .. "]", err) end
+            task.wait()
+            running = false
+        end)
+    end)
+    Library:TrackConnection(conn, tag)
 end
 
 -- ===========================================================================
 -- NOTIFICATION HELPER
 -- ===========================================================================
-local function Notify(title, msg, style)
-    pcall(function()
-        if Library.createDisplayMessage then
-            Library:createDisplayMessage(title, msg, {{text = "OK"}}, style or "info")
-        end
-    end)
+local function Notify(title, desc, style)
+    Library:createDisplayMessage(title, desc, {
+        { text = "OK" },
+    }, style or "info")
 end
 
 -- ===========================================================================
@@ -837,17 +846,12 @@ local function buildToggle(parent, cfg)
         flagName = flag,
         Flag = cfg.Flag or false,
         Callback = function()
-            UnbindLoop(tag)
+            Library:CleanupConnectionsByTag(tag)
             if not Library.Flags[flag] then return end
-            local last, busy = 0, false
-            local conn = RunService.Heartbeat:Connect(function()
-                if not Library.Flags[flag] then UnbindLoop(tag); return end
-                local d = Library.Flags["LegitMode"] and (delay * (0.6 + math.random() * 0.8) + math.random(0.05, 0.25)) or delay
-                if busy or (os.clock() - last) < d then return end
-                last = os.clock(); busy = true
-                pcall(step); busy = false
-            end)
-            BindLoop(tag, conn)
+            local actualDelay = Library.Flags["LegitMode"]
+                and (delay * (0.6 + math.random() * 0.8) + math.random(0.05, 0.25))
+                or delay
+            interval(tag, flag, actualDelay, step)
         end
     })
 end
@@ -942,13 +946,13 @@ end
 -- ===========================================================================
 -- UI TABS
 -- ===========================================================================
-local HomeTab = Library:CreateSection("Home")
-local FarmTab = Library:CreateSection("Farm")
-local StealTab = Library:CreateSection("Steal")
-local ShopTab = Library:CreateSection("Shop")
-local PlayerTab = Library:CreateSection("Player")
-local VisualsTab = Library:CreateSection("Visuals")
-local MiscTab = Library:CreateSection("Misc")
+local HomeTab = UI:CreateSection("Home")
+local FarmTab = UI:CreateSection("Farm")
+local StealTab = UI:CreateSection("Steal")
+local ShopTab = UI:CreateSection("Shop")
+local PlayerTab = UI:CreateSection("Player")
+local VisualsTab = UI:CreateSection("Visuals")
+local MiscTab = UI:CreateSection("Misc")
 
 -- ===========================================================================
 -- HOME TAB
@@ -1272,7 +1276,7 @@ end})
 -- ===========================================================================
 -- PREDICTORS TAB
 -- ===========================================================================
-local PredTab = Library:CreateSection("Predictors")
+local PredTab = UI:CreateSection("Predictors")
 
 -- Weather data from ReplicatedStorage.WeatherValues
 -- Each weather has: Playing (BoolValue), EndTime (NumberValue)
@@ -1837,26 +1841,28 @@ buildToggle(PlayerTab, {
 })
 
 PlayerTab:createToggle({Name = "Infinite Jump", flagName = "InfJump", Flag = false, Callback = function(enabled)
-    UnbindLoop("InfJump")
+    Library:CleanupConnectionsByTag("InfJump")
     if enabled then
-        BindLoop("InfJump", UserInputService.JumpRequest:Connect(function()
+        local conn = UserInputService.JumpRequest:Connect(function()
             if Library.Flags["InfJump"] then
                 local hum = client.Character and client.Character:FindFirstChildOfClass("Humanoid")
                 if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
             end
-        end))
+        end)
+        Library:TrackConnection(conn, "InfJump")
     end
 end})
 
 PlayerTab:createToggle({Name = "Noclip", flagName = "NoClip", Flag = false, Callback = function(enabled)
-    UnbindLoop("NoClip")
+    Library:CleanupConnectionsByTag("NoClip")
     if enabled then
-        BindLoop("NoClip", RunService.Stepped:Connect(function()
+        local conn = RunService.Stepped:Connect(function()
             if not Library.Flags["NoClip"] or not client.Character then return end
             for _, part in ipairs(client.Character:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
             end
-        end))
+        end)
+        Library:TrackConnection(conn, "NoClip")
     end
 end})
 
