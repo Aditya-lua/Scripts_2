@@ -47,10 +47,9 @@ _G.GardenHQ = function()
     CO={}; CC={}; CT={}
 end
 
-print(string.rep("━",64))
-print("┃ GardenMaster HQ v5.0 ┃ Premium Edition")
-print("┃ Rebuilt from full decompiled game source")
-print(string.rep("━",64))
+print(string.rep("-",64))
+print("[HQ] GardenMaster HQ v5.1")
+print(string.rep("-",64))
 
 local Library = loadstring(game:HttpGet("https://versusairlines.top/scripts/NewLibrary.lua"))()
 if not Library then warn("[HQ] Library failed"); return end
@@ -77,6 +76,56 @@ local function NF(title, msg, style)
             Library:Notify(title, msg, 5)
         end
     end)
+end
+
+local function firstSelected(value, fallback)
+    if typeof(value) == "table" then
+        if value[1] ~= nil then return value[1] end
+        for k, v in pairs(value) do
+            if v == true then return k end
+            if type(v) == "string" then return v end
+        end
+        return fallback
+    end
+    if value == nil or value == "" then return fallback end
+    return value
+end
+
+local function asSelectionList(value)
+    local list = {}
+    if typeof(value) == "table" then
+        for k, v in pairs(value) do
+            if type(k) == "number" and type(v) == "string" and v ~= "" and v ~= "None" then
+                list[#list + 1] = v
+            elseif type(k) == "string" and v == true and k ~= "" and k ~= "None" then
+                list[#list + 1] = k
+            end
+        end
+    elseif type(value) == "string" and value ~= "" and value ~= "None" then
+        list[1] = value
+    end
+    return list
+end
+
+local function trimText(value)
+    return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function cleanItemName(name)
+    local s = trimText(name)
+    s = s:gsub("%b[]", "")
+    s = s:gsub("%s*[xX]%s*%d+%s*$", "")
+    s = s:gsub("%s+%(%d+%)%s*$", "")
+    s = s:gsub("_", " "):gsub(":", " ")
+    s = s:gsub("^Seed%s+", "")
+    s = s:gsub("%s+Seed$", "")
+    s = s:gsub("%s+Tool$", "")
+    return trimText(s:gsub("%s+", " "))
+end
+
+local function isNamedLikeSeed(name)
+    local n = tostring(name or ""):lower()
+    return n:find("seed", 1, true) and not n:find("seed pack", 1, true) and not n:find("seedpack", 1, true)
 end
 
 local function HP(prompt)
@@ -224,21 +273,34 @@ local function authenticatePlot()
     PL.sprinklersFolder=target:FindFirstChild("Sprinklers")
     PL.propsFolder=target:FindFirstChild("Props")
     PL.rakesFolder=target:FindFirstChild("Rakes")
-    -- Find plantable areas
-    for _,ch in ipairs(target:GetDescendants()) do if ch:IsA("BasePart") then
-        local n=ch.Name:lower()
-        if n:find("plantarea") or n:find("platarea") or n:find("soil") or n:find("plot") or n:find("dirt") or CollectionService:HasTag(ch,"PlantArea") or CollectionService:HasTag(ch,"Soil") then
-            PL.plantAreas[#PL.plantAreas+1]=ch
+    -- Find real plantable floor parts first; broad plot parts/signs are only fallbacks.
+    local fallbackParts = {}
+    for _, ch in ipairs(target:GetDescendants()) do
+        if ch:IsA("BasePart") then
+            local n = ch.Name:lower()
+            local tagged = CollectionService:HasTag(ch, "PlantArea") or CollectionService:HasTag(ch, "Soil")
+            local namedSoil = n:find("plantarea", 1, true) or n:find("plant area", 1, true) or n:find("platarea", 1, true) or n:find("soil", 1, true) or n:find("dirt", 1, true) or n:find("farm", 1, true)
+            if tagged or namedSoil then
+                PL.plantAreas[#PL.plantAreas + 1] = ch
+            elseif n == "bottomface" or n == "base" or n == "floor" or n:find("garden", 1, true) then
+                fallbackParts[#fallbackParts + 1] = ch
+            end
         end
-    end end
-    if #PL.plantAreas==0 then
-        local b=target:FindFirstChild("BottomFace",true) or (target:IsA("Model") and target.PrimaryPart)
-        if b and b:IsA("BasePart") then PL.plantAreas[#PL.plantAreas+1]=b end
     end
+    if #PL.plantAreas == 0 then
+        table.sort(fallbackParts, function(a, b) return (a.Size.X * a.Size.Z) > (b.Size.X * b.Size.Z) end)
+        if fallbackParts[1] then
+            PL.plantAreas[#PL.plantAreas + 1] = fallbackParts[1]
+        else
+            local b = target:FindFirstChild("BottomFace", true) or (target:IsA("Model") and target.PrimaryPart)
+            if b and b:IsA("BasePart") then PL.plantAreas[#PL.plantAreas + 1] = b end
+        end
+    end
+    table.sort(PL.plantAreas, function(a, b) return (a.Size.X * a.Size.Z) > (b.Size.X * b.Size.Z) end)
     -- Build grid via raytracing
     PL.gridNodes={}
     for _,area in ipairs(PL.plantAreas) do
-        local ap=area.Position; local sx,sz=math.max(area.Size.X,1)*0.92,math.max(area.Size.Z,1)*0.92
+        local ap=area.Position; local sx,sz=math.max(area.Size.X,1)*0.46,math.max(area.Size.Z,1)*0.46
         for x=-sx,sx,2.6 do for z=-sz,sz,2.6 do
             local ox,oz=ap.X+x+math.random(-0.4,0.4),ap.Z+z+math.random(-0.4,0.4)
             local ry=Workspace:Raycast(Vector3.new(ox,ap.Y+30,oz),Vector3.new(0,-60,0))
@@ -265,7 +327,7 @@ local function getRowPosition(spc)
     authenticatePlot(); spc=spc or 2.9
     if not PL.auth or #PL.plantAreas==0 then return PL.center end
     local area=PL.plantAreas[1]
-    local ap=area.Position; local sx,sz=math.max(area.Size.X,1)*0.88,math.max(area.Size.Z,1)*0.88
+    local ap=area.Position; local sx,sz=math.max(area.Size.X,1)*0.44,math.max(area.Size.Z,1)*0.44
     local step=spc
     if not PL.rowX then PL.rowX=ap.X-sx; PL.rowZ=ap.Z-sz end
     local x,z=PL.rowX,PL.rowZ
@@ -336,20 +398,36 @@ end
 -- TOOL HANDLING SYSTEM
 -- ===========================================================================
 local function findTool(searchName)
-    if not searchName or typeof(searchName)~="string" or searchName=="" then return nil end
-    local cs = searchName:lower():gsub("seed[:_ ]",""):gsub("%s+",""):gsub("%[.*%]",""):gsub("tool",""):gsub("x%d+","")
-    local function matches(tool)
-        if not tool or not tool:IsA("Tool") then return false end
-        local tn = tool.Name:lower():gsub("seed[:_ ]",""):gsub("%s+",""):gsub("%[.*%]",""):gsub("tool",""):gsub("x%d+","")
-        return tn==cs or tn:find(cs,1,true) or cs:find(tn,1,true) or (tn:find("seed") and tn:gsub("seed","")==cs)
+    if not searchName or typeof(searchName) ~= "string" or searchName == "" then return nil end
+    local cs = cleanItemName(searchName):lower():gsub("%s+", "")
+    if cs == "" then return nil end
+
+    local function scoreTool(tool)
+        if not tool or not tool:IsA("Tool") then return nil end
+        local clean = cleanItemName(tool.Name)
+        local tn = clean:lower():gsub("%s+", "")
+        local raw = tool.Name:lower():gsub("%s+", "")
+        if tn == cs then return 5 end
+        if raw == cs then return 4 end
+        if tn:find(cs, 1, true) or cs:find(tn, 1, true) then return 3 end
+        if isNamedLikeSeed(tool.Name) and clean:lower():find(cleanItemName(searchName):lower(), 1, true) then return 2 end
+        return nil
     end
-    local bp = client:FindFirstChild("Backpack")
-    if bp then for _,t in ipairs(bp:GetChildren()) do if matches(t) then return t end end end
-    if client.Character then for _,t in ipairs(client.Character:GetChildren()) do if matches(t) then return t end end end
-    local all={}; if bp then for _,t in ipairs(bp:GetChildren()) do if t:IsA("Tool") then all[#all+1]=t end end end
-    if client.Character then for _,t in ipairs(client.Character:GetChildren()) do if t:IsA("Tool") then all[#all+1]=t end end end
-    for _,t in ipairs(all) do if t.Name:lower():find(cs,1,true) or cs:find(t.Name:lower():gsub("seed[:_ ]",""),1,true) then return t end end
-    return nil
+
+    local bestTool, bestScore = nil, -1
+    local function scan(container)
+        if not container then return end
+        for _, tool in ipairs(container:GetChildren()) do
+            local score = scoreTool(tool)
+            if score and score > bestScore then
+                bestTool, bestScore = tool, score
+            end
+        end
+    end
+
+    scan(client.Character)
+    scan(client:FindFirstChild("Backpack"))
+    return bestTool
 end
 
 local function equipTool(tool)
@@ -383,9 +461,25 @@ end
 local function plantSeedAction(seedName, targetPosition)
     if not seedName or not targetPosition then return false end
     local tool = findTool(seedName)
-    if not tool then return false end
-    if tool.Parent~=client.Character then equipTool(tool); task.wait(0.06) end
-    Net.Plant.PlantSeed:Fire(targetPosition, seedName, tool)
+    if not tool then
+        if Library.Flags["Debug"] then warn("[HQ:Plant] No seed tool found for", seedName) end
+        return false
+    end
+
+    if tool.Parent ~= client.Character then
+        equipTool(tool)
+        task.wait(0.08)
+    end
+
+    local seedType = cleanItemName(tool.Name)
+    if seedType == "" then seedType = cleanItemName(seedName) end
+    local ok, err = pcall(function()
+        Net.Plant.PlantSeed:Fire(targetPosition, seedType, tool)
+    end)
+    if not ok then
+        warn("[HQ:Plant] PlantSeed failed: " .. tostring(err))
+        return false
+    end
     return true
 end
 
@@ -616,12 +710,18 @@ end
 -- UTILITY HELPERS
 -- ===========================================================================
 local function getBackpackSeeds()
-    local s={}; local bp=client:FindFirstChild("Backpack")
-    if bp then for _,t in ipairs(bp:GetChildren()) do
-        if t:IsA("Tool") and (t.Name:find("Seed:") or t.Name:find("Seed_") or table.find(GD.seeds,t.Name)) then
-            local cn=t.Name:gsub("Seed:",""):gsub("Seed_",""):match("^([^%[]+)"); if cn and cn~="" and not table.find(s,cn) then s[#s+1]=cn end
-        end
-    end end; return s
+    local s = {}
+    local function addTool(t)
+        if not t or not t:IsA("Tool") then return end
+        if not isNamedLikeSeed(t.Name) and not table.find(GD.seeds, cleanItemName(t.Name)) then return end
+        local cn = cleanItemName(t.Name)
+        if cn ~= "" and not table.find(s, cn) then s[#s + 1] = cn end
+    end
+    local bp = client:FindFirstChild("Backpack")
+    if bp then for _, t in ipairs(bp:GetChildren()) do addTool(t) end end
+    if client.Character then for _, t in ipairs(client.Character:GetChildren()) do addTool(t) end end
+    table.sort(s)
+    return s
 end
 
 local function getBackpackSprinklers()
@@ -664,9 +764,10 @@ end
 -- GARDEN TAB
 -- ##############################################################################
 -- ##############################################################################
-local GardenTab = UI:CreateSection("🌱 Garden")
+local ExtraTab = UI:CreateSection("Player")
+local GardenTab = UI:CreateSection("Garden")
 
-GardenTab:createLabel({Name="Paid Contributor: aditya44325f",Special=true})
+GardenTab:createLabel({Name="Garden Control",Special=true})
 
 -- ============================================
 -- Planting & Harvest
@@ -679,22 +780,38 @@ GardenTab:createDropdown({Name="Plant Priority",flagName="PP",List={"Manual Orde
 
 ciToggle(GardenTab,{Name="Auto Plant",flagName="AP",tag="AP",delay=0.4,Step=function()
     authenticatePlot()
-    local st=Library.Flags["PS_type"]
-    if st=="None" then return end
+    local st = firstSelected(Library.Flags["PS_type"], "None")
+    if st == "None" then return end
     enforceGeofence("p")
-    local ss={}
-    if st=="All" then ss=getBackpackSeeds()
-    elseif st=="Selected" then local sl=Library.Flags["PS_list"]; if sl then ss=typeof(sl)=="table" and sl or {sl} end end
-    if #ss==0 then return end
-    if Library.Flags["PP"]=="Highest Value" then
-        local sc={}; for _,n in ipairs(ss) do local t=findTool(n); sc[n]=t and (t:GetAttribute("Value") or 1) or 1 end
-        table.sort(ss,function(a,b) return (sc[a] or 0)>(sc[b] or 0) end)
+
+    local ss = {}
+    if st == "All" then
+        ss = getBackpackSeeds()
+    elseif st == "Selected" then
+        ss = asSelectionList(Library.Flags["PS_list"])
     end
-    for _,n in ipairs(ss) do
+    if #ss == 0 then
+        if Library.Flags["Debug"] then warn("[HQ:Plant] No matching seed tools found") end
+        return
+    end
+
+    if firstSelected(Library.Flags["PP"], "Manual Order") == "Highest Value" then
+        local sc = {}
+        for _, n in ipairs(ss) do
+            local t = findTool(n)
+            sc[n] = t and (t:GetAttribute("Value") or t:GetAttribute("Price") or 1) or 1
+        end
+        table.sort(ss, function(a, b) return (sc[a] or 0) > (sc[b] or 0) end)
+    end
+
+    for _, n in ipairs(ss) do
         if not Library.Flags["AP"] then break end
-        if n=="" then continue end
-        local pos=getPlacementPosition(2.9)
-        if pos then plantSeedAction(n,pos); task.wait(0.06) end
+        if n ~= "" then
+            local pos = getPlacementPosition(2.9)
+            if pos and plantSeedAction(n, pos) then
+                task.wait(0.12)
+            end
+        end
     end
 end})
 
@@ -902,7 +1019,7 @@ end})
 -- STEALER TAB
 -- ##############################################################################
 -- ##############################################################################
-local StealerTab = UI:CreateSection("🦝 Stealer")
+local StealerTab = UI:CreateSection("Stealer")
 
 StealerTab:createLabel({Name="Auto Steal Targets",Special=true})
 
@@ -1009,7 +1126,7 @@ end})
 -- SHOP TAB
 -- ##############################################################################
 -- ##############################################################################
-local ShopTab = UI:CreateSection("🛒 Shop")
+local ShopTab = UI:CreateSection("Market")
 
 ShopTab:createLabel({Name="Seed & Gear Shop",Special=true})
 
@@ -1055,7 +1172,7 @@ ciToggle(ShopTab,{Name="Auto Buy Pets",flagName="SH_bpet",tag="SH_bpet",delay=1.
 end})
 
 ShopTab:createLabel({Name="Stock & Weather Predictors",Special=true})
-ShopTab:createToggle({Name="Show Predictors",flagName="PRED",Flag=true})
+ShopTab:createToggle({Name="Show HUD Tracker",flagName="PRED",Flag=false})
 
 ShopTab:createLabel({Name="Daily Deals",Special=true})
 ciToggle(ShopTab,{Name="Auto Use Daily Deals",flagName="AutoDaily",tag="AutoDaily",delay=5.0,Step=function() checkDailyDealAction() end})
@@ -1099,7 +1216,7 @@ end})
 -- MISC TAB
 -- ##############################################################################
 -- ##############################################################################
-local MiscTab = UI:CreateSection("⚙️ Misc")
+local MiscTab = UI:CreateSection("Safety")
 
 MiscTab:createToggle({Name="Humanized Mode (Random Delays)",flagName="LegitMode",Flag=true})
 
@@ -1169,7 +1286,7 @@ MiscTab:createButton({Name="Leave Server",Callback=function() pcall(function() T
 -- VISUALS TAB
 -- ##############################################################################
 -- ##############################################################################
-local VisualsTab = UI:CreateSection("👁️ Visuals")
+local VisualsTab = UI:CreateSection("Visuals")
 
 VisualsTab:createLabel({Name="World Settings",Special=true})
 
@@ -1543,17 +1660,18 @@ HUD_Screen.Name = "GardenHQ_HUD"
 HUD_Screen.ResetOnSpawn = false
 HUD_Screen.Parent = CoreGui
 RC(HUD_Screen)
+HUD_Screen.Enabled = Library.Flags["PRED"] == true
 
 -- ============================================
 -- Weather Bar
 -- ============================================
 local WeatherBar = Instance.new("Frame")
 WeatherBar.Name = "WeatherBar"
-WeatherBar.Size = UDim2.new(0,620,0,48)
-WeatherBar.Position = UDim2.new(0.5,-310,1,-106)
+WeatherBar.Size = UDim2.new(0,540,0,42)
+WeatherBar.Position = UDim2.new(0.5,-270,1,-96)
 WeatherBar.BackgroundColor3 = Color3.fromRGB(15,15,15)
-WeatherBar.BackgroundTransparency = 0.15
-WeatherBar.BorderSizePixel = 2
+WeatherBar.BackgroundTransparency = 0.08
+WeatherBar.BorderSizePixel = 1
 WeatherBar.BorderColor3 = Color3.fromRGB(50,50,50)
 WeatherBar.Parent = HUD_Screen
 
@@ -1563,7 +1681,7 @@ WeatherLayout.FillDirection = Enum.FillDirection.Horizontal
 WeatherLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 WeatherLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 WeatherLayout.SortOrder = Enum.SortOrder.LayoutOrder
-WeatherLayout.Padding = UDim.new(0,5)
+WeatherLayout.Padding = UDim.new(0,4)
 
 local WeatherWidgets = {}
 
@@ -1579,7 +1697,7 @@ local WeatherTypes = {
 for _, weatherType in ipairs(WeatherTypes) do
     local box = Instance.new("Frame")
     box.Name = weatherType.id
-    box.Size = UDim2.new(0,92,0,40)
+    box.Size = UDim2.new(0,84,0,34)
     box.BackgroundColor3 = Color3.fromRGB(25,25,25)
     box.BorderSizePixel = 1
     box.BorderColor3 = weatherType.color
@@ -1605,8 +1723,8 @@ end
 -- ============================================
 local StockFrame = Instance.new("Frame")
 StockFrame.Name = "StockFrame"
-StockFrame.Size = UDim2.new(0,620,0,26)
-StockFrame.Position = UDim2.new(0.5,-310,1,-58)
+StockFrame.Size = UDim2.new(0,540,0,22)
+StockFrame.Position = UDim2.new(0.5,-270,1,-52)
 StockFrame.BackgroundTransparency = 1
 StockFrame.Parent = HUD_Screen
 
@@ -1620,20 +1738,28 @@ local StockWidgets = {}
 
 local function updateStockWidget(shopName, itemName, count)
     local key = shopName .. "_" .. itemName
+    if tonumber(count) == nil or count <= 0 then
+        if StockWidgets[key] then
+            StockWidgets[key]:Destroy()
+            StockWidgets[key] = nil
+        end
+        return
+    end
+
     if not StockWidgets[key] then
         local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0,140,0,20)
-        label.BackgroundTransparency = 0.3
-        label.BackgroundColor3 = Color3.fromRGB(20,20,20)
-        label.TextColor3 = Color3.fromRGB(180,255,180)
-        label.Font = Enum.Font.Gotham
-        label.TextSize = 10
-        label.Text = shopName .. ": " .. itemName .. " x" .. count
+        label.Size = UDim2.new(0,126,0,18)
+        label.BackgroundTransparency = 0.18
+        label.BackgroundColor3 = Color3.fromRGB(18,18,18)
+        label.BorderSizePixel = 0
+        label.TextColor3 = Color3.fromRGB(190,255,190)
+        label.Font = Enum.Font.GothamMedium
+        label.TextSize = 9
+        label.TextTruncate = Enum.TextTruncate.AtEnd
         label.Parent = StockFrame
         StockWidgets[key] = label
-    else
-        StockWidgets[key].Text = shopName .. ": " .. itemName .. " x" .. count
     end
+    StockWidgets[key].Text = shopName:gsub("Shop", "") .. ": " .. itemName .. " x" .. tostring(count)
 end
 
 -- ============================================
@@ -1641,8 +1767,8 @@ end
 -- ============================================
 local StatusBar = Instance.new("Frame")
 StatusBar.Name = "StatusBar"
-StatusBar.Size = UDim2.new(0,620,0,22)
-StatusBar.Position = UDim2.new(0.5,-310,1,-32)
+StatusBar.Size = UDim2.new(0,540,0,18)
+StatusBar.Position = UDim2.new(0.5,-270,1,-28)
 StatusBar.BackgroundTransparency = 1
 StatusBar.Parent = HUD_Screen
 
@@ -1675,6 +1801,7 @@ RC(task.spawn(function()
     while Alive do
         task.wait(1.2)
         pcall(function()
+            HUD_Screen.Enabled = Library.Flags["PRED"] == true
             local nowReal = os.time()
             local rainbowRemaining = 2700 - (nowReal % 2700)
             local bloodmoonRemaining = 3600 - (nowReal % 3600)
@@ -1757,7 +1884,7 @@ end))
 -- PREDICTORS TAB
 -- ##############################################################################
 -- ##############################################################################
-local PredictorsTab = UI:CreateSection("🔮 Predictors")
+local PredictorsTab = UI:CreateSection("Tracker")
 
 PredictorsTab:createLabel({Name="Real-Time Environment Status",Special=true})
 
@@ -1935,7 +2062,7 @@ end})
 -- DEVELOPER TOOLS TAB
 -- ##############################################################################
 -- ##############################################################################
-local DevTab = UI:CreateSection("🛠️ Dev Tools")
+local DevTab = UI:CreateSection("Tools")
 
 DevTab:createLabel({Name="Debug & Diagnostics",Special=true})
 
@@ -2031,26 +2158,26 @@ end})
 -- ##############################################################################
 -- ##############################################################################
 
-print(string.rep("━",64))
-print("┃ GardenMaster HQ v5.0 ┃ Premium")
-print("┃ "..#GD.seeds.." seeds | "..#GD.gears.." gears | "..#GD.crates.." crates | "..#GD.pets.." pets")
-print("┃ Contributor: aditya44325f")
-print("┃ Networking: "..(Net and "Loaded" or "FAILED"))
-print("┃ Placement: Good Position / Player Position / Random / Mouse")
-print("┃ ESP: Player / Plant / Prop / Sprinkler / Rake")
-print("┃ HUD: Weather Bar + Stock Ticker + Status Bar")
-print(string.rep("━",64))
+print(string.rep("-",64))
+print("[HQ] GardenMaster HQ v5.1")
+print("[HQ] "..#GD.seeds.." seeds | "..#GD.gears.." gears | "..#GD.crates.." crates | "..#GD.pets.." pets")
+print("[HQ] Contributor: aditya44325f")
+print("[HQ] Networking: "..(Net and "Loaded" or "FAILED"))
+print("[HQ] Placement: Good Position / Player Position / Random / Mouse")
+print("[HQ] ESP: Player / Plant / Prop / Sprinkler / Rake")
+print("[HQ] HUD: Weather Bar + Stock Ticker + Status Bar")
+print(string.rep("-",64))
 
 -- ##############################################################################
 -- ##############################################################################
 -- WEBHOOKS TAB
 -- ##############################################################################
 -- ##############################################################################
-local WebhooksTab = UI:CreateSection("🔔 Webhooks")
+local WebhooksTab = UI:CreateSection("Alerts")
 
 WebhooksTab:createLabel({Name="Discord Webhook Integration",Special=true})
 
-WebhooksTab:createTextbox({Name="Webhook URL",flagName="WebhookURL",value=""})
+WebhooksTab:createInputBox({Name="Webhook URL",flagName="WebhookURL",Flag=""})
 
 WebhooksTab:createToggle({Name="Notify on Rare Finds",flagName="WH_Rare",Flag=false})
 WebhooksTab:createDropdown({Name="Minimum Rarity to Alert",flagName="WH_Rarity",List={"Legendary","Mythic","Rainbow","Gold"}})
@@ -2101,7 +2228,7 @@ end))
 -- ACHIEVEMENTS & STATS TAB
 -- ##############################################################################
 -- ##############################################################################
-local StatsTab = UI:CreateSection("🏆 Stats")
+local StatsTab = UI:CreateSection("Stats")
 
 StatsTab:createLabel({Name="Session Statistics",Special=true})
 
@@ -2138,8 +2265,6 @@ end})
 -- EXTRA UTILITIES
 -- ##############################################################################
 -- ##############################################################################
-local ExtraTab = UI:CreateSection("🔧 Extras")
-
 ExtraTab:createLabel({Name="Character Utilities",Special=true})
 
 ExtraTab:createToggle({Name="Infinite Jump",flagName="InfJump",Flag=false,Callback=function(e)
@@ -2258,17 +2383,16 @@ task.spawn(function()
 end)
 
 -- Final print
-print(string.rep("━",64))
-print("┃ GardenMaster HQ v5.0 ┃ LOADED")
-print("┃ Tabs: Garden | Stealer | Shop | Misc | Visuals | Predictors | Dev | Webhooks | Stats | Extras")
-print("┃ "..#GD.seeds.." seeds | "..#GD.gears.." gears | "..#GD.crates.." crates | "..#GD.pets.." pets")
-print("┃ Contributor: aditya44325f")
-print("┃ Syntax: VERIFIED CLEAN")
-print("┃ Networking: ReplicatedStorage.SharedModules.Networking")
-print("┃ Placement: Good Position (row-by-row) | Player Position | Random | Mouse")
-print("┃ ESP: Player (Box/Name/HP/Team/Held/Distance/Tracers/Skeleton) | Plant (Rarity/Name/Owned/Mutation/Distance/Value) | Prop | Sprinkler | Rake")
-print("┃ HUD: Weather Bar + Stock Ticker + Status Bar")
-print(string.rep("━",64))
+print(string.rep("-",64))
+print("[HQ] GardenMaster HQ v5.1 loaded")
+print("[HQ] Tabs: Garden | Stealer | Market | Safety | Visuals | Tracker | Tools | Alerts | Stats | Player")
+print("[HQ] "..#GD.seeds.." seeds | "..#GD.gears.." gears | "..#GD.crates.." crates | "..#GD.pets.." pets")
+print("[HQ] Contributor: aditya44325f")
+print("[HQ] Networking: ReplicatedStorage.SharedModules.Networking")
+print("[HQ] Placement: Good Position (row-by-row) | Player Position | Random | Mouse")
+print("[HQ] ESP: Player (Box/Name/HP/Team/Held/Distance/Tracers/Skeleton) | Plant (Rarity/Name/Owned/Mutation/Distance/Value) | Prop | Sprinkler | Rake")
+print("[HQ] HUD: Weather Bar + Stock Ticker + Status Bar")
+print(string.rep("-",64))
 
 
 -- ##############################################################################
@@ -2312,27 +2436,24 @@ end))
 
 local bootTime = os.clock()
 
-print(string.rep("━",64))
-print("┃ GardenMaster HQ v5.0 ┃ Premium Edition")
-print("┃ Build Date: 2026-06-17")
-print("┃ Game: GAG2 (Gardens & Gardening)")
-print("┃ Network Module: ReplicatedStorage.SharedModules.Networking")
-print("┃ Active Remotes: 23+ verified from decompiled source")
-print("┃")
-print("┃ FEATURES:")
-print("┃   🌱 Garden: Auto Plant/Harvest/Water/Sell/Cleanup/Collect Seeds/Gear Use/Fling Aura")
-print("┃   🦝 Stealer: Auto Steal w/ Rarity/Name/Mutation filters + Anti Guard + Safety")
-print("┃   🛒 Shop: Auto Buy Seeds/Gears/Props/Pets + Daily Deals + Bargain + Crate Opening")
-print("┃   ⚙️ Misc: Codes/Humanized/Anti Fling/Anti AFK/Gear & Pet Equip")
-print("┃   👁️ Visuals: Player/Plant/Prop/Sprinkler/Rake ESP + Fullbright/NoFog/FOV/Clock")
-print("┃   🔮 Predictors: Weather/Restock/Night/Plot Status + Garden Scanner + Stock Checker")
-print("┃   🛠️ Dev: Plot/GameData/Network/Remote dumping tools")
-print("┃   🔔 Webhooks: Discord integration for rare finds + steals")
-print("┃   🏆 Stats: Session tracking + uptime")
-print("┃   🔧 Extras: Fly/NoClip/Speed/Jump/Server Hop")
-print("┃")
-print("┃ Game Data: "..#GD.seeds.." seeds | "..#GD.gears.." gears | "..#GD.crates.." crates | "..#GD.pets.." pets")
-print(string.rep("━",64))
+print(string.rep("-",64))
+print("[HQ] GardenMaster HQ v5.1")
+print("[HQ] Build Date: 2026-06-17")
+print("[HQ] Game: GAG2 (Gardens & Gardening)")
+print("[HQ] Network Module: ReplicatedStorage.SharedModules.Networking")
+print("[HQ] FEATURES:")
+print("[HQ]   Garden: Planting, harvest, water, sell, cleanup, collect, gear use")
+print("[HQ]   Stealer: Target filters, owner checks, guard tools, safety controls")
+print("[HQ]   Market: Seeds, gears, props, pets, daily deals, crates, eggs")
+print("[HQ]   Safety: Codes, humanized delays, anti-fling, anti-idle, equipment")
+print("[HQ]   Visuals: Player, plant, prop, sprinkler, rake ESP and world settings")
+print("[HQ]   Tracker: Weather, restock, night, plot status, scanner, stock checker")
+print("[HQ]   Tools: Plot, game data, network, remote diagnostics")
+print("[HQ]   Alerts: Discord webhook notifications")
+print("[HQ]   Stats: Session tracking and uptime")
+print("[HQ]   Player: Fly, noclip, speed, jump, server hop")
+print("[HQ] Game Data: "..#GD.seeds.." seeds | "..#GD.gears.." gears | "..#GD.crates.." crates | "..#GD.pets.." pets")
+print(string.rep("-",64))
 NF("GardenMaster HQ","v5.0 Loaded in "..string.format("%.2f",os.clock()-bootTime).."s\n"..#GD.seeds.." seeds ready","info")
 
 -- ##############################################################################
