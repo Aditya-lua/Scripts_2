@@ -1,3 +1,10 @@
+--[[
+    Versus Airlines | GAG 2
+    Grow a Garden 2 — Full Autofarm
+    Built from decompiled GAG2 source
+    Networking: ReplicatedStorage.SharedModules.Networking
+]]
+
 local request = (syn and syn.request) or (http and http.request) or http_request
 local client = game:GetService("Players").LocalPlayer
 
@@ -593,7 +600,7 @@ end
 
 -- VALUE SCORING
 local MutationValue = {gold=15, rainbow=42, electric=11, solarflare=13, frozen=9, bloodlit=11, chained=7, pizza=6, starstruck=22, ghost=18, poison=14}
-local RarityScore = {common=1, uncommon=2, rare=3, super=4, epic=5, legendary=6, mythic=7}
+local RarityScore = {common=1, uncommon=2, rare=3, super=4, epic=5, legendary=6, mythic=7, gold=10, rainbow=10}
 
 local function passesFilter(model, fruitF, mutF, rarF)
     if not model then return false end
@@ -642,6 +649,18 @@ local function getCandidates(maxCount, fruitF, mutF, rarF, ownedOnly, blacklist)
     local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
     local gardens = Workspace:FindFirstChild("Gardens") or Workspace
 
+        local plotOwnerMap = {}
+    for _, plot in ipairs(gardens:GetChildren()) do
+        if plot:IsA("Model") or plot:IsA("Folder") then
+            local owner = getPlotOwner(plot)
+            if owner then
+                plotOwnerMap[plot] = owner
+                local pff = plot:FindFirstChild("Plants")
+                if pff then for _, m in ipairs(pff:GetChildren()) do if m:IsA("Model") then plotOwnerMap[m] = owner end end end
+            end
+        end
+    end
+
     local function add(model, isOurs)
         if not model or not model:IsA("Model") then return end
         if blacklist and #blacklist > 0 then
@@ -653,7 +672,8 @@ local function getCandidates(maxCount, fruitF, mutF, rarF, ownedOnly, blacklist)
         local fid = model:GetAttribute("FruitId")
         local sc = calculatePlantValue(model)
         local d = hrp and (model:GetPivot().Position - hrp.Position).Magnitude or 0
-        candidates[#candidates + 1] = {model = model, plantId = pid, fruitId = fid, score = sc, distance = d, isOwned = isOurs}
+        local pOwner = plotOwnerMap[model]
+        candidates[#candidates + 1] = {model = model, plantId = pid, fruitId = fid, score = sc, distance = d, isOwned = isOurs, plotOwner = pOwner, position = model:GetPivot().Position}
     end
 
     for _, prompt in ipairs(CollectionService:GetTagged("HarvestPrompt")) do
@@ -776,7 +796,330 @@ end
 local function predictRestock(shopName, itemName)
     local key = shopName .. "." .. itemName
     local hist = RestockHistory[key]
-    if not hist or #hist < 2 then return nil, nil end
+    if not hist or #hist < 2 then return n
+-- searchFruits - was missing entirely in v1, rebuilt from scratch
+
+local function searchFruits(fruitNames, mutations, rarities, minValue, includeOwn)
+    local results = {}
+    local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
+    local gardens = Workspace:FindFirstChild("Gardens") or Workspace
+
+    for _, plot in ipairs(gardens:GetChildren()) do
+        if not (plot:IsA("Model") or plot:IsA("Folder")) then continue end
+        local plotOwner = getPlotOwner(plot)
+        local isOurs = plotOwner == client.UserId
+        if not includeOwn and isOurs then continue end
+
+        local pf = plot:FindFirstChild("Plants")
+        if not pf then continue end
+
+        for _, plant in ipairs(pf:GetChildren()) do
+            if not plant:IsA("Model") then continue end
+
+            if fruitNames and #fruitNames > 0 then
+                local match = false
+                local nm = plant.Name:lower()
+                for _, f in ipairs(fruitNames) do
+                    if nm:find(f:lower(), 1, true) then match = true; break end
+                end
+                if not match then continue end
+            end
+
+            local mut = (plant:GetAttribute("Mutation") or ""):lower()
+            if mutations and #mutations > 0 then
+                local match = false
+                for _, m in ipairs(mutations) do
+                    if mut == m:lower() then match = true; break end
+                end
+                if not match then continue end
+            end
+
+            local rar = (plant:GetAttribute("Rarity") or ""):lower()
+            if rarities and #rarities > 0 then
+                local match = false
+                for _, r in ipairs(rarities) do
+                    if rar == r:lower() then match = true; break end
+                end
+                if not match then continue end
+            end
+
+            local value = calculatePlantValue(plant)
+            if minValue and value < minValue then continue end
+
+            local pos = plant:GetPivot().Position
+            local dist = hrp and (pos - hrp.Position).Magnitude or 0
+
+            results[#results + 1] = {
+                model = plant,
+                plantId = plant:GetAttribute("PlantId"),
+                fruitId = plant:GetAttribute("FruitId"),
+                score = value,
+                distance = dist,
+                isOwned = isOurs,
+                plotOwner = plotOwner,
+                position = pos,
+            }
+        end
+    end
+
+    table.sort(results, function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        return a.distance < b.distance
+    end)
+
+    return results
+end
+
+-- findGroundItems - scans workspace for dropped seeds/gear/crates
+
+local function findGroundItems(itemType)
+    local items = {}
+    local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
+    local pickupRange = Library.Flags["PickupRange"] or 50
+
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if not obj:IsA("BasePart") then continue end
+        local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt")
+        if not prompt then continue end
+
+        local actionText = prompt.ActionText:lower()
+        local objName = obj.Name:lower()
+
+        local matches = false
+        if itemType == "seeds" then
+            matches = actionText:find("pick up", 1, true) or actionText:find("collect", 1, true)
+                or actionText:find("take", 1, true) or isNamedLikeSeed(obj.Name)
+        elseif itemType == "gear" then
+            matches = objName:find("gear", 1, true) or actionText:find("gear", 1, true)
+        elseif itemType == "crates" then
+            matches = objName:find("crate", 1, true)
+        else
+            matches = true
+        end
+
+        if not matches then continue end
+
+        local dist = hrp and (obj.Position - hrp.Position).Magnitude or math.huge
+        if dist > pickupRange then continue end
+
+        items[#items + 1] = {
+            model = obj,
+            name = obj.Name,
+            prompt = prompt,
+            position = obj.Position,
+            distance = dist,
+        }
+    end
+
+    table.sort(items, function(a, b) return a.distance < b.distance end)
+    return items
+end
+
+-- tameWildPet - handles both prompt + remote paths
+
+local function tameWildPet(petModel)
+    if not petModel or not petModel:IsA("Model") then return end
+    if petModel:GetAttribute("Wild") ~= true then return end
+
+    local primary = petModel.PrimaryPart or petModel:FindFirstChildWhichIsA("BasePart")
+    if primary then
+        movePlayer(primary.Position)
+        task.wait(0.3)
+        for _, prompt in ipairs(petModel:GetDescendants()) do
+            if prompt:IsA("ProximityPrompt") then
+                local actionText = prompt.ActionText:lower()
+                if actionText:find("tame", 1, true) or actionText:find("catch", 1, true) then
+                    firePrompt(prompt)
+                    task.wait(0.5)
+                    break
+                end
+            end
+        end
+    end
+
+    local petId = petModel:GetAttribute("PetId") or petModel:GetAttribute("Id")
+    if petId then
+        pcall(function()
+            if Net.Pets and Net.Pets.TamePet then Net.Pets.TamePet:Fire(petId)
+            elseif Net.Tame and Net.Tame.TamePet then Net.Tame.TamePet:Fire(petId) end
+        end)
+    end
+end
+
+-- buyPetSlot - tries remotes first, falls back to NPC prompt
+
+local function buyPetSlot()
+    pcall(function()
+        if Net.Pets and Net.Pets.PurchaseSlot then Net.Pets.PurchaseSlot:Fire()
+        elseif Net.Pets and Net.Pets.BuySlot then Net.Pets.BuySlot:Fire()
+        elseif Net.PetShop and Net.PetShop.PurchaseSlot then Net.PetShop.PurchaseSlot:Fire()
+        else
+            local petShopNPCs = {}
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj.Name:lower():find("pet", 1, true) and obj.Name:lower():find("shop", 1, true) then
+                    petShopNPCs[#petShopNPCs + 1] = obj
+                end
+            end
+            if #petShopNPCs > 0 then
+                local npc = petShopNPCs[1]
+                local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt")
+                if prompt then
+                    movePlayer(npc.PrimaryPart and npc.PrimaryPart.Position or npc:GetPivot().Position)
+                    task.wait(0.3)
+                    firePrompt(prompt)
+                end
+            end
+        end
+    end)
+end
+
+-- equipBestPets - rarity sort then equip top N
+
+local function equipBestPets()
+    local petFolder = client:FindFirstChild("Pets")
+    if not petFolder then return end
+
+    local pets = {}
+    for _, pet in ipairs(petFolder:GetChildren()) do
+        if pet:IsA("Model") or pet:IsA("Folder") or pet:IsA("Tool") then
+            local rarity = (pet:GetAttribute("Rarity") or ""):lower()
+            local value = pet:GetAttribute("Value") or pet:GetAttribute("Power") or 1
+            pets[#pets + 1] = {
+                model = pet,
+                name = pet.Name,
+                value = value,
+                rarityScore = RarityScore[rarity] or 0,
+            }
+        end
+    end
+
+    table.sort(pets, function(a, b)
+        if a.rarityScore ~= b.rarityScore then return a.rarityScore > b.rarityScore end
+        return (a.value or 0) > (b.value or 0)
+    end)
+
+    pcall(function() Net.Pets.RequestUnequip:Fire() end)
+    task.wait(0.3)
+
+    local maxSlots = client:GetAttribute("MaxPetSlots") or 3
+    local equipped = 0
+    for _, pet in ipairs(pets) do
+        if equipped >= maxSlots then break end
+        local petId = pet.model:GetAttribute("PetId") or pet.model:GetAttribute("Id") or pet.model.Name
+        if petId then
+            pcall(function()
+                if Net.Pets and Net.Pets.EquipPet then Net.Pets.EquipPet:Fire(petId)
+                elseif Net.Pets and Net.Pets.RequestEquip then Net.Pets.RequestEquip:Fire(petId) end
+            end)
+            equipped = equipped + 1
+            task.wait(0.1)
+        end
+    end
+end
+
+-- whackPlayer - uses shovel on thief
+
+local function whackPlayer(targetPlayer)
+    if not targetPlayer then return end
+    local targetChar = targetPlayer.Character
+    if not targetChar then return end
+    local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+    if not targetHrp then return end
+
+    local shovel = findTool("shovel") or findTool("Shovel")
+    if shovel then
+        if shovel.Parent ~= client.Character then equipTool(shovel); task.wait(0.05) end
+    end
+
+    if shovel and shovel.Parent == client.Character then
+        pcall(function()
+            if Net.Shovel and Net.Shovel.UseShovel then
+                Net.Shovel.UseShovel:Fire(targetPlayer.UserId, "", "", cleanItemName(shovel.Name) or "Shovel", shovel)
+            end
+        end)
+    end
+end
+
+-- shovelAuraHit - aoe shovel within range
+
+local function shovelAuraHit(range)
+    if not PL.auth then authenticatePlot(); if not PL.auth then return end end
+    local myHrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+
+    local shovel = findTool("shovel") or findTool("Shovel")
+    if not shovel then return end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == client then continue end
+        local char = plr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp and (hrp.Position - myHrp.Position).Magnitude <= range then
+            if (hrp.Position - PL.center).Magnitude < 35 then
+                pcall(function()
+                    if Net.Shovel and Net.Shovel.UseShovel then
+                        Net.Shovel.UseShovel:Fire(plr.UserId, "", "", cleanItemName(shovel.Name) or "Shovel", shovel)
+                    end
+                end)
+                task.wait(0.05)
+            end
+        end
+    end
+end
+
+-- expandGarden - tries multiple remote paths
+
+local function expandGarden()
+    pcall(function()
+        if Net.Garden and Net.Garden.Expand then Net.Garden.Expand:Fire()
+        elseif Net.Plot and Net.Plot.Expand then Net.Plot.Expand:Fire()
+        elseif Net.Settings and Net.Settings.ExpandGarden then Net.Settings.ExpandGarden:Fire()
+        end
+    end)
+end
+
+-- serverHop - pulls server list from roblox api then teleports
+
+local function serverHop()
+    pcall(function()
+        local servers = {}
+        local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?limit=100&sortOrder=Asc"
+        local success, result = pcall(function()
+            return request({ Url = url, Method = "GET", Headers = {["Content-Type"] = "application/json"} })
+        end)
+        if success and result and result.StatusCode == 200 then
+            local data = HttpService:JSONDecode(result.Body)
+            if data and data.data then
+                for _, srv in ipairs(data.data) do
+                    if srv.playing and srv.playing < srv.maxPlayers then
+                        servers[#servers + 1] = srv.id
+                    end
+                end
+            end
+        end
+        if #servers > 0 then
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, servers[math.random(#servers)], client)
+        else
+            TeleportService:Teleport(game.PlaceId, client)
+        end
+    end)
+end
+
+-- sendWebhook - discord webhook, supports embed too
+
+local function sendWebhook(url, message, embed)
+    if not url or url == "" then return end
+    task.spawn(function()
+        pcall(function()
+            local payload = {content = message}
+            if embed then payload.embeds = {embed} end
+            local body = HttpService:JSONEncode(payload)
+            request({ Url = url, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
+        end)
+    end)
+end
+
+il, nil end
 
     -- Calculate average interval between restocks
     local totalInterval = 0
@@ -1343,6 +1686,7 @@ buildToggle(FarmTab, {
 
 FarmTab:createLabel({Name = "Collect Seeds", Special = true})
 
+FarmTab:createSlider({Name = "Pickup Range", flagName = "PickupRange", value = 50, minValue = 10, maxValue = 200})
 buildToggle(FarmTab, {
     Name = "Auto Collect Ground Seeds", flagName = "ACS_all", tag = "ACS_all", delay = 1.0,
     step = function()
@@ -2079,6 +2423,36 @@ Track(task.spawn(function()
             if ping and ping ~= "" then msg = ping .. " " .. msg end
             sendWebhook(url, msg)
             task.wait(60)
+        end)
+    end
+end))
+
+-- Webhook: steal detection
+Track(task.spawn(function()
+    while _alive do
+        task.wait(5)
+        pcall(function()
+            if not Library.Flags["WH_Steal"] then return end
+            local url = Library.Flags["WebhookURL"]
+            if not url or url == "" then return end
+            if not isNightTime() then return end
+            authenticatePlot()
+            if not PL.auth then return end
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr == client then continue end
+                local char = plr.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp and (hrp.Position - PL.center).Magnitude < 30 then
+                    if plr:GetAttribute("IsStealingFruit") or plr:GetAttribute("CarryingStolenFruit") then
+                        local ping = Library.Flags["WebhookPing"]
+                        local msg = string.format("Thief: %s (%d)", plr.Name, plr.UserId)
+                        if ping and ping ~= "" then msg = ping .. " " .. msg end
+                        sendWebhook(url, msg)
+                        task.wait(10)
+                        break
+                    end
+                end
+            end
         end)
     end
 end))
