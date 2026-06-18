@@ -1,10 +1,3 @@
---[[
-    Versus Airlines | GAG 2
-    Grow a Garden 2 — Full Autofarm
-    Built from decompiled GAG2 source
-    Networking: ReplicatedStorage.SharedModules.Networking
-]]
-
 local request = (syn and syn.request) or (http and http.request) or http_request
 local client = game:GetService("Players").LocalPlayer
 
@@ -49,20 +42,8 @@ end
 -- LIBRARY
 print("[GAG 2] Versus Airlines loading...")
 
-local Library
-do
-    local ok, err = pcall(function()
-        local code = game:HttpGet("https://versusairlines.top/scripts/NewLibrary.lua")
-        if not code or #code < 50 then error("empty response from library URL") end
-        local fn = loadstring(code)
-        if not fn then error("loadstring returned nil - executor may not support this") end
-        Library = fn()
-    end)
-    if not ok or not Library then
-        warn("[VA] Library load failed: " .. tostring(err))
-        return
-    end
-end
+local Library = loadstring(game:HttpGet("https://versusairlines.top/scripts/NewLibrary.lua"))()
+if not Library then warn("[VA] Library failed"); return end
 
 local UI = Library:Setup({
     Location = CoreGui,
@@ -95,12 +76,6 @@ end
 local PacketEvent
 pcall(function()
     PacketEvent = ReplicatedStorage:WaitForChild("SharedModules", 5):WaitForChild("Packet", 5):WaitForChild("RemoteEvent", 5)
-end)
-
--- TeleportButton remote (used by game for Sell/Seeds/Garden teleports)
-local TPButtonEvent
-pcall(function()
-    TPButtonEvent = Net.TeleportButton and Net.TeleportButton.Request
 end)
 
 -- INTERVAL HELPER (Versus Airlines template)
@@ -296,385 +271,6 @@ Track(task.spawn(function()
     while _alive do task.wait(30); pcall(refreshGameData) end
 end))
 
--- BACKPACK SCANNER
-local function scanBackpack(pattern)
-    local results = {}
-    local bp = client:FindFirstChild("Backpack")
-    if bp then
-        for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") then
-                if not pattern or tool.Name:lower():find(pattern:lower(), 1, true) then
-                    results[#results + 1] = tool
-                end
-            end
-        end
-    end
-    local char = client.Character
-    if char then
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") then
-                if not pattern or tool.Name:lower():find(pattern:lower(), 1, true) then
-                    results[#results + 1] = tool
-                end
-            end
-        end
-    end
-    return results
-end
-
-local function countBackpackItems()
-    local bp = client:FindFirstChild("Backpack")
-    if not bp then return 0 end
-    return #bp:GetChildren()
-end
-
--- GARDEN VALUE CALCULATOR
-local function calculateGardenValue()
-    authenticatePlot()
-    if not PL.plantsFolder then return 0, 0 end
-    local totalValue = 0
-    local plantCount = 0
-    for _, plant in ipairs(PL.plantsFolder:GetChildren()) do
-        if plant:IsA("Model") then
-            plantCount = plantCount + 1
-            totalValue = totalValue + calculatePlantValue(plant)
-        end
-    end
-    return totalValue, plantCount
-end
-
-local function getGardenStats()
-    local value, count = calculateGardenValue()
-    local mutations = {}
-    local rarities = {}
-    if PL.plantsFolder then
-        for _, plant in ipairs(PL.plantsFolder:GetChildren()) do
-            if plant:IsA("Model") then
-                local mut = plant:GetAttribute("Mutation")
-                local rar = plant:GetAttribute("Rarity")
-                if mut and mut ~= "" then
-                    mutations[mut] = (mutations[mut] or 0) + 1
-                end
-                if rar and rar ~= "" then
-                    rarities[rar] = (rarities[rar] or 0) + 1
-                end
-            end
-        end
-    end
-    return {value = value, count = count, mutations = mutations, rarities = rarities}
-end
-
--- GROUND ITEM COLLECTOR
-local function findGroundItems(itemType)
-    local items = {}
-    local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return items end
-    local range = Library.Flags["GroundRange"] or 50
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
-            local parent = obj.Parent
-            if parent then
-                local name = (parent.Name .. " " .. (obj.ActionText or "")):lower()
-                local match = false
-                if itemType == "seeds" and (name:find("seed", 1, true) or name:find("claim", 1, true)) then match = true
-                elseif itemType == "eggs" and name:find("egg", 1, true) then match = true
-                elseif itemType == "crates" and name:find("crate", 1, true) then match = true
-                elseif itemType == "all" then match = true end
-                if match then
-                    local pos = parent:IsA("Model") and parent:GetPivot().Position or parent.Position
-                    if pos and (pos - hrp.Position).Magnitude <= range then
-                        items[#items + 1] = {prompt = obj, position = pos, name = parent.Name}
-                    end
-                end
-            end
-        end
-    end
-    table.sort(items, function(a, b)
-        local da = hrp and (a.position - hrp.Position).Magnitude or 0
-        local db = hrp and (b.position - hrp.Position).Magnitude or 0
-        return da < db
-    end)
-    return items
-end
-
--- AUTO-WATER SYSTEM
-local function findPlantsNeedingWater()
-    authenticatePlot()
-    if not PL.plantsFolder then return {} end
-    local needsWater = {}
-    for _, plant in ipairs(PL.plantsFolder:GetChildren()) do
-        if plant:IsA("Model") and plant.PrimaryPart then
-            local watered = plant:GetAttribute("Watered")
-            local thirst = plant:GetAttribute("Thirst") or plant:GetAttribute("WaterLevel")
-            if watered == false or (type(thirst) == "number" and thirst < 0.5) then
-                needsWater[#needsWater + 1] = {
-                    model = plant,
-                    position = plant:GetPivot().Position,
-                    plantId = plant:GetAttribute("PlantId"),
-                }
-            end
-        end
-    end
-    return needsWater
-end
-
--- AUTO-FAVORITE SYSTEM
-local function getBackpackFruits()
-    local fruits = {}
-    local bp = client:FindFirstChild("Backpack")
-    if bp then
-        for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") then
-                local fruitId = tool:GetAttribute("FruitId") or tool:GetAttribute("ItemId")
-                local rarity = tool:GetAttribute("Rarity")
-                local mutation = tool:GetAttribute("Mutation")
-                if fruitId then
-                    fruits[#fruits + 1] = {
-                        tool = tool,
-                        fruitId = fruitId,
-                        name = tool.Name,
-                        rarity = tostring(rarity or ""):lower(),
-                        mutation = tostring(mutation or ""):lower(),
-                        value = calculatePlantValue(tool),
-                    }
-                end
-            end
-        end
-    end
-    return fruits
-end
-
--- PLAYER ESP SYSTEM
-local PlayerESP_Cache = {}
-
-local function createPlayerESP(plr)
-    if PlayerESP_Cache[plr] then return end
-    if plr == client then return end
-
-    local holder = Instance.new("Folder")
-    holder.Name = "PESP_" .. plr.Name
-
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "HL"
-    highlight.FillColor = Color3.fromRGB(255, 80, 80)
-    highlight.FillTransparency = 0.8
-    highlight.OutlineColor = Color3.fromRGB(255, 120, 120)
-    highlight.OutlineTransparency = 0.3
-    highlight.Parent = holder
-
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "BB"
-    bb.Size = UDim2.new(0, 180, 0, 60)
-    bb.StudsOffset = Vector3.new(0, 4, 0)
-    bb.AlwaysOnTop = true
-    bb.Parent = holder
-
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Name = "Name"
-    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 10
-    nameLabel.TextStrokeTransparency = 0.5
-    nameLabel.Parent = bb
-
-    local infoLabel = Instance.new("TextLabel")
-    infoLabel.Name = "Info"
-    infoLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    infoLabel.Position = UDim2.new(0, 0, 0.5, 0)
-    infoLabel.BackgroundTransparency = 1
-    infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    infoLabel.Font = Enum.Font.Gotham
-    infoLabel.TextSize = 9
-    infoLabel.TextStrokeTransparency = 0.5
-    infoLabel.Parent = bb
-
-    holder.Parent = CoreGui
-    PlayerESP_Cache[plr] = holder
-end
-
-local function removePlayerESP(plr)
-    local holder = PlayerESP_Cache[plr]
-    if holder then pcall(function() holder:Destroy() end) end
-    PlayerESP_Cache[plr] = nil
-end
-
-local function cleanPlayerESP()
-    for plr, holder in pairs(PlayerESP_Cache) do pcall(function() holder:Destroy() end) end
-    PlayerESP_Cache = {}
-end
-
--- PROP ESP SYSTEM
-local PropESP_Cache = {}
-
-local function createPropESP(obj, text, color)
-    if PropESP_Cache[obj] then
-        local holder = PropESP_Cache[obj]
-        if holder and holder.Parent then
-            local bb = holder:FindFirstChild("BB")
-            if bb then local label = bb:FindFirstChild("Label"); if label then label.Text = text end end
-        end
-        return
-    end
-    local holder = Instance.new("Folder")
-    local highlight = Instance.new("Highlight")
-    highlight.FillColor = color or Color3.fromRGB(200, 200, 200)
-    highlight.FillTransparency = 0.8
-    highlight.OutlineColor = color or Color3.fromRGB(200, 200, 200)
-    highlight.OutlineTransparency = 0.5
-    highlight.Adornee = obj
-    highlight.Parent = holder
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "BB"
-    bb.Size = UDim2.new(0, 150, 0, 30)
-    bb.StudsOffset = Vector3.new(0, 2, 0)
-    bb.AlwaysOnTop = true
-    bb.Adornee = obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")) or obj
-    bb.Parent = holder
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = color or Color3.fromRGB(200, 200, 200)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.Parent = bb
-    holder.Parent = CoreGui
-    PropESP_Cache[obj] = holder
-end
-
-local function cleanPropESP()
-    for _, holder in pairs(PropESP_Cache) do pcall(function() holder:Destroy() end) end
-    PropESP_Cache = {}
-end
-
--- SPRINKLER ESP
-local SprinklerESP_Cache = {}
-
-local function createSprinklerESP(obj, text)
-    if SprinklerESP_Cache[obj] then
-        local holder = SprinklerESP_Cache[obj]
-        if holder and holder.Parent then
-            local bb = holder:FindFirstChild("BB")
-            if bb then local label = bb:FindFirstChild("Label"); if label then label.Text = text end end
-        end
-        return
-    end
-    local holder = Instance.new("Folder")
-    local highlight = Instance.new("Highlight")
-    highlight.FillColor = Color3.fromRGB(100, 200, 255)
-    highlight.FillTransparency = 0.7
-    highlight.OutlineColor = Color3.fromRGB(100, 200, 255)
-    highlight.OutlineTransparency = 0.3
-    highlight.Adornee = obj
-    highlight.Parent = holder
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "BB"
-    bb.Size = UDim2.new(0, 140, 0, 25)
-    bb.StudsOffset = Vector3.new(0, 2, 0)
-    bb.AlwaysOnTop = true
-    bb.Adornee = obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")) or obj
-    bb.Parent = holder
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = Color3.fromRGB(100, 200, 255)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.Parent = bb
-    holder.Parent = CoreGui
-    SprinklerESP_Cache[obj] = holder
-end
-
-local function cleanSprinklerESP()
-    for _, holder in pairs(SprinklerESP_Cache) do pcall(function() holder:Destroy() end) end
-    SprinklerESP_Cache = {}
-end
-
--- SERVER HOP
-local function serverHop()
-    notify("Server Hop", "Searching for a new server...", "info")
-    pcall(function()
-        local servers = HttpService:JSONDecode(game:HttpGet(
-            "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-        ))
-        if servers and servers.data then
-            for _, server in ipairs(servers.data) do
-                if server.id ~= game.JobId and server.playing < server.maxPlayers - 2 then
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, client)
-                    return
-                end
-            end
-        end
-    end)
-end
-
--- ANTI-VOID
-local function checkAntiVoid()
-    local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    if hrp.Position.Y < -50 then
-        if PL.auth and PL.gate then
-            movePlayer(PL.gate.Position)
-        else
-            hrp.CFrame = CFrame.new(0, 50, 0)
-        end
-    end
-end
-
--- WEATHER HISTORY TRACKER
-local WeatherHistory = {}
-
-local function trackWeatherHistory()
-    local weather = readWeatherState()
-    local now = os.time()
-    for _, wt in ipairs(WeatherTypes) do
-        local w = weather[wt.id]
-        if w and w.playing then
-            if not WeatherHistory[wt.id] or not WeatherHistory[wt.id].active then
-                WeatherHistory[wt.id] = {
-                    active = true,
-                    startTime = now,
-                    endTime = now + w.remaining,
-                    mutations = w.mutations,
-                }
-            end
-        else
-            if WeatherHistory[wt.id] and WeatherHistory[wt.id].active then
-                WeatherHistory[wt.id].active = false
-                WeatherHistory[wt.id].duration = now - WeatherHistory[wt.id].startTime
-            end
-        end
-    end
-end
-
-local function getWeatherHistorySummary()
-    local lines = {}
-    for id, data in pairs(WeatherHistory) do
-        if data.active then
-            local remaining = math.max(0, data.endTime - os.time())
-            lines[#lines + 1] = id .. ": ACTIVE (" .. fmtTime(remaining) .. " left)"
-        elseif data.duration then
-            lines[#lines + 1] .. ": ended (lasted " .. fmtTime(data.duration) .. ")"
-        end
-    end
-    return lines
-end
-
--- DAILY DEAL TRACKER
-local DailyDealData = {lastCheck = 0, deals = {}}
-
-local function checkDailyDeals()
-    checkDailyDeal()
-    DailyDealData.lastCheck = os.time()
-end
-
--- AUTO-COLLECT GROUND ITEMS
-
 -- REMOTE WRAPPERS (verified against decompiled Networking module)
 local function harvestPlant(plantId, fruitId)
     if not plantId then return end
@@ -709,47 +305,11 @@ local function placeSprinkler(name, pos)
     return true
 end
 
-local function sellAll()
-    -- The game teleports to sell NPC first, then the NPC triggers the sell.
-    -- Try the teleport button first, fall back to direct SellAll.
-    pcall(function()
-        local tpEvent = TPButtonEvent
-        if tpEvent then
-            tpEvent:Fire("Sell")
-        else
-            Net.NPCS.SellAll:Fire()
-        end
-    end)
-end
+local function sellAll() pcall(function() Net.NPCS.SellAll:Fire() end) end
 local function sellFruit(fid) if fid then pcall(function() Net.NPCS.SellFruit:Fire(fid) end) end end
-local function buySeed(name)
-    if not name or name == "" then return end
-    -- Check per-player purchase limit (maxStock - PurchasedThisRestock)
-    local stock = ReplicatedStorage:FindFirstChild("StockValues")
-    local shop = stock and stock:FindFirstChild("SeedShop")
-    local items = shop and shop:FindFirstChild("Items")
-    local stockItem = items and items:FindFirstChild(name)
-    if stockItem and stockItem.Value <= 0 then return end -- out of stock
-    pcall(function() Net.SeedShop.PurchaseSeed:Fire(name) end)
-end
-local function buyGear(name)
-    if not name or name == "" then return end
-    local stock = ReplicatedStorage:FindFirstChild("StockValues")
-    local shop = stock and stock:FindFirstChild("GearShop")
-    local items = shop and shop:FindFirstChild("Items")
-    local stockItem = items and items:FindFirstChild(name)
-    if stockItem and stockItem.Value <= 0 then return end
-    pcall(function() Net.GearShop.PurchaseGear:Fire(name) end)
-end
-local function buyCrate(name)
-    if not name or name == "" then return end
-    local stock = ReplicatedStorage:FindFirstChild("StockValues")
-    local shop = stock and stock:FindFirstChild("CrateShop")
-    local items = shop and shop:FindFirstChild("Items")
-    local stockItem = items and items:FindFirstChild(name)
-    if stockItem and stockItem.Value <= 0 then return end
-    pcall(function() Net.CrateShop.PurchaseCrate:Fire(name) end)
-end
+local function buySeed(name) if name and name ~= "" then pcall(function() Net.SeedShop.PurchaseSeed:Fire(name) end) end end
+local function buyGear(name) if name and name ~= "" then pcall(function() Net.GearShop.PurchaseGear:Fire(name) end) end end
+local function buyCrate(name) if name and name ~= "" then pcall(function() Net.CrateShop.PurchaseCrate:Fire(name) end) end end
 local function openCrate(name) if name and name ~= "" then pcall(function() Net.Crate.OpenCrate:Fire(name) end) end end
 local function openSeedPack(name) if name and name ~= "" then pcall(function() Net.SeedPack.OpenSeedPack:Fire(name) end) end end
 local function openEgg(name) if name and name ~= "" then pcall(function() Net.Egg.OpenEgg:Fire(name) end) end end
@@ -831,22 +391,12 @@ local function authenticatePlot()
     local gardens = Workspace:FindFirstChild("Gardens") or Workspace
     local target, pid
 
-    -- Use the game's PlotId attribute first
-    local plotId = client:GetAttribute("PlotId")
-    if plotId then
-        target = gardens:FindFirstChild("Plot" .. tostring(plotId))
-        pid = plotId
-    end
-
-    -- Fallback: find by owner
-    if not target then
-        for _, plot in ipairs(gardens:GetChildren()) do
-            if plot:IsA("Model") or plot:IsA("Folder") then
-                if getPlotOwner(plot) == client.UserId then
-                    target = plot
-                    pid = tonumber(tostring(plot.Name):match("%d+"))
-                    break
-                end
+    for _, plot in ipairs(gardens:GetChildren()) do
+        if plot:IsA("Model") or plot:IsA("Folder") then
+            if getPlotOwner(plot) == client.UserId then
+                target = plot
+                pid = tonumber(tostring(plot.Name):match("%d+"))
+                break
             end
         end
     end
@@ -1584,7 +1134,9 @@ end))
 local HomeTab = UI:CreateSection("Home")
 local FarmTab = UI:CreateSection("Farm")
 local StealTab = UI:CreateSection("Steal")
+local SearchTab = UI:CreateSection("Search")
 local ShopTab = UI:CreateSection("Shop")
+local PetTab = UI:CreateSection("Pets")
 local PredTab = UI:CreateSection("Predictors")
 local PlayerTab = UI:CreateSection("Player")
 local VisualsTab = UI:CreateSection("Visuals")
@@ -1636,20 +1188,6 @@ end})
 
 HomeTab:createButton({Name = "Rejoin Server", Callback = function()
     pcall(function() TeleportService:Teleport(game.PlaceId, client) end)
-end})
-
-HomeTab:createLabel({Name = "Quick Info", Special = true})
-HomeTab:createButton({Name = "Quick Garden Report", Callback = function()
-    local stats = getGardenStats()
-    local night = isNightTime()
-    local restock = getRestockUnix("SeedShop")
-    notify("Quick Report", string.format(
-        "Plants: %d | Value: %.0f\nBackpack: %d items\nNight: %s\nSeed Restock: %s\nTransport: %s",
-        stats.count, stats.value, countBackpackItems(),
-        night and "YES" or "NO",
-        restock and fmtTime(math.max(0, restock - os.time())) or "...",
-        Library.Flags["TransportMode"] or "Tween"
-    ), "info")
 end})
 
 -- FARM TAB
@@ -1803,6 +1341,54 @@ buildToggle(FarmTab, {
     end
 })
 
+FarmTab:createLabel({Name = "Collect Seeds", Special = true})
+
+buildToggle(FarmTab, {
+    Name = "Auto Collect Ground Seeds", flagName = "ACS_all", tag = "ACS_all", delay = 1.0,
+    step = function()
+        local items = findGroundItems("seeds")
+        for _, item in ipairs(items) do
+            if not Library.Flags["ACS_all"] then break end
+            movePlayer(item.position)
+            task.wait(0.15)
+            firePrompt(item.prompt)
+            task.wait(0.1)
+        end
+    end
+})
+
+buildToggle(FarmTab, {
+    Name = "Auto Collect Gold Seeds", flagName = "ACS_gold", tag = "ACS_gold", delay = 0.5,
+    step = function()
+        local items = findGroundItems("seeds")
+        for _, item in ipairs(items) do
+            if not Library.Flags["ACS_gold"] then break end
+            if item.name:lower():find("gold", 1, true) then
+                movePlayer(item.position)
+                task.wait(0.15)
+                firePrompt(item.prompt)
+                task.wait(0.1)
+            end
+        end
+    end
+})
+
+buildToggle(FarmTab, {
+    Name = "Auto Collect Rainbow Seeds", flagName = "ACS_rainbow", tag = "ACS_rainbow", delay = 0.5,
+    step = function()
+        local items = findGroundItems("seeds")
+        for _, item in ipairs(items) do
+            if not Library.Flags["ACS_rainbow"] then break end
+            if item.name:lower():find("rainbow", 1, true) then
+                movePlayer(item.position)
+                task.wait(0.15)
+                firePrompt(item.prompt)
+                task.wait(0.1)
+            end
+        end
+    end
+})
+
 -- STEAL TAB
 StealTab:createLabel({Name = "Night Stealing", Special = true})
 StealTab:createDropdown({Name = "Rarities", flagName = "ST_rar", multi = true, List = RTS})
@@ -1819,9 +1405,6 @@ buildToggle(StealTab, {
     Name = "Auto Steal", flagName = "ST", tag = "ST", delay = 0.65,
     step = function()
         if not isNightTime() then return end
-
-        -- Game blocks actions while stealing
-        if client:GetAttribute("IsStealingFruit") or client:GetAttribute("CarryingStolenFruit") then return end
 
         local sr = toList(Library.Flags["ST_rar"])
         local sn = toList(Library.Flags["ST_names"])
@@ -1871,25 +1454,62 @@ buildToggle(StealTab, {
             end
 
             movePlayer(c.model:GetPivot().Position)
-            task.wait(0.2)
-            -- Check if we're already carrying stolen fruit
-            if client:GetAttribute("CarryingStolenFruit") then break end
-            beginSteal(ownerId, c.plantId, c.fruitId)
             task.wait(0.15)
+            beginSteal(ownerId, c.plantId, c.fruitId)
+            task.wait(0.08)
             completeSteal()
-            task.wait(0.1)
+            task.wait(0.05)
             if c.plantId then task.spawn(harvestPlant, c.plantId, c.fruitId) end
             stolen += 1
-            task.wait(0.25)
+            task.wait(0.2)
         end
     end
 })
 
-StealTab:createLabel({Name = "Steal Tools", Special = true})
-
-StealTab:createLabel({Name = "Steal Stats", Special = true})
-
 -- SHOP TAB
+SearchTab:createLabel({Name = "Fruit Searcher", Special = true})
+SearchTab:createDropdown({Name = "Fruits", flagName = "SR_names", multi = true, List = GD.seeds})
+SearchTab:createDropdown({Name = "Rarity", flagName = "SR_rar", multi = true, List = RTS})
+SearchTab:createDropdown({Name = "Mutation", flagName = "SR_mut", multi = true, List = MTS})
+SearchTab:createSlider({Name = "Min Value", flagName = "SR_minVal", value = 0, minValue = 0, maxValue = 100000})
+SearchTab:createToggle({Name = "Include Own Garden", flagName = "SR_own", Flag = false})
+SearchTab:createSlider({Name = "Results", flagName = "SR_count", value = 10, minValue = 1, maxValue = 50})
+
+SearchTab:createButton({Name = "Search Now", Callback = function()
+    local results = searchFruits(
+        toList(Library.Flags["SR_names"]),
+        toList(Library.Flags["SR_mut"]),
+        toList(Library.Flags["SR_rar"]),
+        Library.Flags["SR_minVal"] or 0,
+        Library.Flags["SR_own"] or false
+    )
+    local count = Library.Flags["SR_count"] or 10
+    local lines = {}
+    lines[#lines + 1] = "Found " .. #results .. " fruits"
+    for i = 1, math.min(count, #results) do
+        local r = results[i]
+        local owner = r.isOwned and "YOU" or (r.plotOwner and tostring(r.plotOwner) or "?")
+        lines[#lines + 1] = string.format("%s | %.0f | Owner: %s", r.model.Name, r.score, owner)
+    end
+    notify("Search", table.concat(lines, "\n"), "info")
+end})
+
+SearchTab:createButton({Name = "Teleport to Best", Callback = function()
+    local results = searchFruits(
+        toList(Library.Flags["SR_names"]),
+        toList(Library.Flags["SR_mut"]),
+        toList(Library.Flags["SR_rar"]),
+        Library.Flags["SR_minVal"] or 0,
+        Library.Flags["SR_own"] or false
+    )
+    if #results > 0 then
+        movePlayer(results[1].position)
+        notify("Search", "Teleported to " .. results[1].model.Name, "info")
+    else
+        notify("Search", "No results found", "warning")
+    end
+end})
+
 ShopTab:createLabel({Name = "Seeds", Special = true})
 ShopTab:createDropdown({Name = "Select Seeds", flagName = "SH_seeds", multi = true, List = GD.seeds})
 
@@ -2002,6 +1622,55 @@ ShopTab:createButton({Name = "Check Gear Stock", Callback = function()
 end})
 
 -- PREDICTORS TAB
+PetTab:createLabel({Name = "Equip", Special = true})
+PetTab:createButton({Name = "Equip Best Pets", Callback = function()
+    equipBestPets()
+    notify("Pets", "Equipped best pets", "info")
+end})
+
+PetTab:createButton({Name = "Unequip All Pets", Callback = function()
+    pcall(function() Net.Pets.RequestUnequip:Fire() end)
+    notify("Pets", "Unequipped all pets", "info")
+end})
+
+buildToggle(PetTab, {
+    Name = "Auto Equip Best Pets", flagName = "AutoEquipPets", tag = "AutoEquipPets", delay = 10.0,
+    step = function() equipBestPets() end
+})
+
+PetTab:createLabel({Name = "Taming", Special = true})
+PetTab:createSlider({Name = "Tame Range", flagName = "TameRange", value = 50, minValue = 10, maxValue = 200})
+
+buildToggle(PetTab, {
+    Name = "Auto Tame Wild Pets", flagName = "AutoTame", tag = "AutoTame", delay = 2.0,
+    step = function()
+        local range = Library.Flags["TameRange"] or 50
+        local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if not Library.Flags["AutoTame"] then break end
+            if obj:IsA("Model") and obj:GetAttribute("Wild") == true then
+                local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                if primary and (primary.Position - hrp.Position).Magnitude <= range then
+                    tameWildPet(obj)
+                    task.wait(1)
+                end
+            end
+        end
+    end
+})
+
+PetTab:createLabel({Name = "Slots", Special = true})
+PetTab:createButton({Name = "Buy Pet Slot", Callback = function()
+    buyPetSlot()
+    notify("Pets", "Pet slot purchase requested", "info")
+end})
+
+buildToggle(PetTab, {
+    Name = "Auto Buy Pet Slots", flagName = "AutoPetSlots", tag = "AutoPetSlots", delay = 5.0,
+    step = function() buyPetSlot() end
+})
+
 PredTab:createLabel({Name = "HUD", Special = true})
 PredTab:createToggle({Name = "Show Predictor HUD", flagName = "ShowPred", Flag = false})
 
@@ -2055,49 +1724,6 @@ PredTab:createButton({Name = "Show Predictions", Callback = function()
         end
     end
     notify("Predictions", #lines > 0 and table.concat(lines, "\n") or "No prediction data yet. Need 2+ restock cycles.", "info")
-end})
-
-PredTab:createLabel({Name = "Detailed Predictions", Special = true})
-PredTab:createButton({Name = "All Restock Predictions", Callback = function()
-    local stockData = readStockData()
-    local lines = {}
-    local hasData = false
-    for shopName, items in pairs(stockData) do
-        local shopLines = {}
-        for _, item in ipairs(items) do
-            if item.count == 0 then
-                local nextTime, avgCount = predictRestock(shopName, item.name)
-                if nextTime then
-                    hasData = true
-                    local remaining = math.max(0, nextTime - os.time())
-                    local status = remaining > 0 and ("in ~" .. fmtTime(remaining)) or "OVERDUE"
-                    shopLines[#shopLines + 1] = "  " .. item.name .. ": " .. status .. " (avg x" .. avgCount .. ")"
-                else
-                    shopLines[#shopLines + 1] = "  " .. item.name .. ": no data"
-                end
-            end
-        end
-        if #shopLines > 0 then
-            lines[#lines + 1] = shopName .. ":"
-            for _, l in ipairs(shopLines) do lines[#lines + 1] = l end
-            lines[#lines + 1] = ""
-        end
-    end
-    if not hasData then
-        lines[#lines + 1] = "No prediction data yet."
-        lines[#lines + 1] = "The system needs to observe at least 2 restock cycles"
-        lines[#lines + 1] = "to calculate average intervals."
-        lines[#lines + 1] = ""
-        lines[#lines + 1] = "Keep the script running and predictions will"
-        lines[#lines + 1] = "appear automatically after restocks happen."
-    end
-    notify("Restock Predictions", table.concat(lines, "\n"), "info")
-end})
-
-PredTab:createButton({Name = "Reset Prediction Data", Callback = function()
-    StockSnapshots = {}
-    RestockHistory = {}
-    notify("Predictions", "All prediction data cleared.", "info")
 end})
 
 PredTab:createLabel({Name = "Auto-Buy Restocked", Special = true})
@@ -2168,50 +1794,22 @@ PlayerTab:createToggle({Name = "Noclip", flagName = "NoClip", Flag = false, Call
     end
 end})
 
-PlayerTab:createLabel({Name = "Fly", Special = true})
-PlayerTab:createSlider({Name = "Fly Speed", flagName = "FlySpeed", value = 50, minValue = 10, maxValue = 300})
+-- VISUALS TAB
+VisualsTab:createLabel({Name = "World", Special = true})
+VisualsTab:createSlider({Name = "Clock Time", flagName = "ClockTime", value = 21, minValue = 0, maxValue = 24})
 
-PlayerTab:createToggle({Name = "Fly", flagName = "Fly", Flag = false, Callback = function(enabled)
-    Library:CleanupConnectionsByTag("Fly")
+buildToggle(VisualsTab, {
+    Name = "Override Clock", flagName = "ClockOn", tag = "ClockOn", delay = 0.5,
+    step = function() Lighting.ClockTime = Library.Flags["ClockTime"] or 21 end
+})
+
+VisualsTab:createToggle({Name = "Fullbright", flagName = "Fullbright", Flag = false, Callback = function(enabled)
     if enabled then
-        local bv = Instance.new("BodyVelocity")
-        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bv.Velocity = Vector3.zero
-        local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then bv.Parent = hrp end
-        Track(bv)
-        local conn = RunService.Heartbeat:Connect(function()
-            if not Library.Flags["Fly"] then
-                pcall(function() bv:Destroy() end)
-                Library:CleanupConnectionsByTag("Fly")
-                return
-            end
-            local hrp2 = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
-            if not hrp2 then return end
-            local cam = Workspace.CurrentCamera
-            local speed = Library.Flags["FlySpeed"] or 50
-            local dir = Vector3.zero
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
-            bv.Velocity = dir.Magnitude > 0 and dir.Unit * speed or Vector3.zero
-        end)
-        Library:TrackConnection(conn, "Fly")
+        Lighting.Brightness = 2
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 100000
     end
 end})
-
-PlayerTab:createLabel({Name = "Teleport", Special = true})
-PlayerTab:createButton({Name = "To Plot", Callback = function()
-    authenticatePlot()
-    if PL.auth and PL.gate then movePlayer(PL.gate.Position); notify("TP", "Plot #" .. tostring(PL.plotId), "info")
-    else notify("TP", "No plot", "warning") end
-end})
-
-PlayerTab:createLabel({Name = "Safety", Special = true})
-
 
 VisualsTab:createLabel({Name = "ESP", Special = true})
 VisualsTab:createDropdown({Name = "Fruit", flagName = "PE_names", multi = true, List = GD.seeds})
@@ -2242,103 +1840,7 @@ buildToggle(VisualsTab, {
     end
 })
 
-VisualsTab:createButton({Name = "Clear Fruit ESP", Callback = function() cleanESP() end})
-
-VisualsTab:createLabel({Name = "Weather Override", Special = true})
-VisualsTab:createToggle({Name = "Force Night Visuals", flagName = "ForceNight", Flag = false, Callback = function(enabled)
-    if enabled then
-        Lighting.ClockTime = 0
-        Lighting.Brightness = 0.5
-    else
-        Lighting.ClockTime = 14
-        Lighting.Brightness = 3
-    end
-end})
-
-VisualsTab:createLabel({Name = "Player ESP", Special = true})
-VisualsTab:createSlider({Name = "Player ESP Range", flagName = "PEP_range", value = 500, minValue = 50, maxValue = 2000})
-VisualsTab:createToggle({Name = "Show Distance", flagName = "PEP_dist", Flag = true})
-VisualsTab:createToggle({Name = "Show Health", flagName = "PEP_hp", Flag = true})
-
-buildToggle(VisualsTab, {
-    Name = "Player ESP", flagName = "PlayerESP", tag = "PlayerESP", delay = 0.5,
-    step = function()
-        local range = Library.Flags["PEP_range"] or 500
-        local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        local live = {}
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr == client then continue end
-            local char = plr.Character
-            local theirHrp = char and char:FindFirstChild("HumanoidRootPart")
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if theirHrp and hum then
-                local dist = (theirHrp.Position - hrp.Position).Magnitude
-                if dist <= range then
-                    live[plr] = true
-                    createPlayerESP(plr)
-                    local holder = PlayerESP_Cache[plr]
-                    if holder then
-                        local hl = holder:FindFirstChild("HL")
-                        if hl then
-                            local plotOwner = getPlotOwner(Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(plr.Name))
-                            hl.FillColor = plotOwner == plr.UserId and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(100, 200, 255)
-                        end
-                        local bb = holder:FindFirstChild("BB")
-                        if bb then
-                            local nameLabel = bb:FindFirstChild("Name")
-                            local infoLabel = bb:FindFirstChild("Info")
-                            if nameLabel then
-                                local adornee = char.PrimaryPart or theirHrp
-                                bb.Adornee = adornee
-                                nameLabel.Text = plr.Name
-                            end
-                            if infoLabel then
-                                local parts = {}
-                                if Library.Flags["PEP_dist"] then parts[#parts + 1] = string.format("%.0fm", dist) end
-                                if Library.Flags["PEP_hp"] then parts[#parts + 1] = string.format("HP: %.0f/%.0f", hum.Health, hum.MaxHealth) end
-                                infoLabel.Text = table.concat(parts, " | ")
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        for plr, holder in pairs(PlayerESP_Cache) do
-            if not live[plr] then
-                removePlayerESP(plr)
-            end
-        end
-    end
-})
-
-VisualsTab:createButton({Name = "Clear Player ESP", Callback = function() cleanPlayerESP() end})
-
-VisualsTab:createLabel({Name = "Sprinkler ESP", Special = true})
-
-buildToggle(VisualsTab, {
-    Name = "Sprinkler ESP", flagName = "SprinklerESP", tag = "SprinklerESP", delay = 1.0,
-    step = function()
-        authenticatePlot()
-        if not PL.sprinklersFolder then return end
-        local live = {}
-        for _, spr in ipairs(PL.sprinklersFolder:GetChildren()) do
-            if spr:IsA("Model") and spr.PrimaryPart then
-                live[spr] = true
-                local radius = spr:GetAttribute("Radius") or spr:GetAttribute("Range") or "?"
-                local remaining = spr:GetAttribute("RemainingTime") or spr:GetAttribute("Lifetime")
-                local text = spr.Name
-                if remaining then text = text .. " | " .. fmtTime(remaining) end
-                createSprinklerESP(spr, text)
-            end
-        end
-        for obj, holder in pairs(SprinklerESP_Cache) do
-            if not live[obj] then holder:Destroy(); SprinklerESP_Cache[obj] = nil end
-        end
-    end
-})
-
-VisualsTab:createButton({Name = "Clear Sprinkler ESP", Callback = function() cleanSprinklerESP() end})
+VisualsTab:createButton({Name = "Clear ESP", Callback = function() cleanESP() end})
 
 -- MISC TAB
 MiscTab:createLabel({Name = "Protection", Special = true})
@@ -2407,35 +1909,71 @@ MiscTab:createButton({Name = "Redeem Code", Callback = function()
     if code and code ~= "" then submitCode(code); notify("Code", "Submitted: " .. code, "info") end
 end})
 
-MiscTab:createLabel({Name = "Ground Items", Special = true})
-MiscTab:createSlider({Name = "Collect Range", flagName = "GroundRange", value = 50, minValue = 10, maxValue = 200})
-MiscTab:createDropdown({Name = "Item Type", flagName = "GroundType", List = {"seeds", "eggs", "crates", "all"}, Flag = "all"})
+MiscTab:createLabel({Name = "PvP", Special = true})
+MiscTab:createSlider({Name = "Shovel Aura Range", flagName = "ShovelRange", value = 15, minValue = 5, maxValue = 50})
 
 buildToggle(MiscTab, {
-    Name = "Auto Collect Ground Items", tag = "GroundCollect", flagName = "GroundCollect", delay = 1.5,
+    Name = "Anti Steal (Whack Thieves)", flagName = "AntiSteal", tag = "AntiSteal", delay = 0.5,
     step = function()
-        local itemType = selectedMode("GroundType", "all")
-        local items = findGroundItems(itemType)
-        for _, item in ipairs(items) do
-            if not Library.Flags["GroundCollect"] then break end
-            local hrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
-            if hrp and item.position then
-                movePlayer(item.position)
-                task.wait(0.2)
-                firePrompt(item.prompt)
-                task.wait(0.1)
+        authenticatePlot()
+        if not PL.auth then return end
+        local myHrp = client.Character and client.Character:FindFirstChild("HumanoidRootPart")
+        if not myHrp then return end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == client then continue end
+            local char = plr.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp and (hrp.Position - PL.center).Magnitude < 30 then
+                if plr:GetAttribute("IsStealingFruit") or plr:GetAttribute("CarryingStolenFruit") then
+                    whackPlayer(plr)
+                    task.wait(0.2)
+                end
             end
         end
     end
 })
 
-MiscTab:createLabel({Name = "Safety", Special = true})
-MiscTab:createToggle({Name = "Anti Void", flagName = "AntiVoid", Flag = true})
+buildToggle(MiscTab, {
+    Name = "Shovel Aura", flagName = "ShovelAura", tag = "ShovelAura", delay = 0.3,
+    step = function()
+        local range = Library.Flags["ShovelRange"] or 15
+        shovelAuraHit(range)
+    end
+})
+
+MiscTab:createLabel({Name = "Garden", Special = true})
+MiscTab:createButton({Name = "Expand Garden", Callback = function()
+    expandGarden()
+    notify("Garden", "Expand request fired", "info")
+end})
 
 buildToggle(MiscTab, {
-    Name = "Anti Void Check", flagName = "AntiVoid", tag = "AntiVoid", delay = 1.0, Flag = true,
-    step = function() checkAntiVoid() end
+    Name = "Auto Expand Garden", flagName = "AutoExpand", tag = "AutoExpand", delay = 5.0,
+    step = function() expandGarden() end
 })
+
+MiscTab:createLabel({Name = "Performance", Special = true})
+MiscTab:createToggle({Name = "White Screen", flagName = "WhiteScreen", Flag = false, Callback = function(enabled)
+    RunService:Set3dRenderingEnabled(not enabled)
+end})
+
+MiscTab:createToggle({Name = "Low Graphics", flagName = "LowGraphics", Flag = false, Callback = function(enabled)
+    if enabled then
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 100000
+        Lighting.Brightness = 0
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                obj.Enabled = false
+            end
+        end
+    else
+        Lighting.GlobalShadows = true
+        Lighting.Brightness = 3
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+    end
+end})
 
 MiscTab:createLabel({Name = "Server", Special = true})
 MiscTab:createButton({Name = "Server Hop", Callback = function() serverHop() end})
@@ -2444,44 +1982,23 @@ MiscTab:createButton({Name = "Copy Game Link", Callback = function()
     pcall(function() setclipboard(link) end)
     notify("Link", link, "info")
 end})
-MiscTab:createButton({Name = "Copy Job ID", Callback = function()
-    pcall(function() setclipboard(game.JobId) end)
-    notify("Job ID", game.JobId, "info")
-end})
 
-MiscTab:createButton({Name = "Copy Place ID", Callback = function()
-    pcall(function() setclipboard(tostring(game.PlaceId)) end)
-    notify("Place ID", tostring(game.PlaceId), "info")
+MiscTab:createLabel({Name = "Webhook", Special = true})
+MiscTab:createInputBox({Name = "Webhook URL", flagName = "WebhookURL", Flag = ""})
+MiscTab:createInputBox({Name = "Ping ID", flagName = "WebhookPing", Flag = ""})
+MiscTab:createToggle({Name = "Rare Fruit Webhook", flagName = "WH_Rare", Flag = false})
+MiscTab:createDropdown({Name = "Min Rarity", flagName = "WH_Rarity", List = {"Legendary", "Mythic", "Rainbow", "Gold"}})
+MiscTab:createToggle({Name = "Steal Webhook", flagName = "WH_Steal", Flag = false})
+MiscTab:createToggle({Name = "Backpack Full Webhook", flagName = "WH_Full", Flag = false})
+MiscTab:createButton({Name = "Test Webhook", Callback = function()
+    local url = Library.Flags["WebhookURL"]
+    if not url or url == "" then notify("Webhook", "Enter a URL first", "warning"); return end
+    local content = "Versus Airlines | GAG 2 test"
+    local ping = Library.Flags["WebhookPing"]
+    if ping and ping ~= "" then content = ping .. " " .. content end
+    sendWebhook(url, content)
+    notify("Webhook", "Test sent", "info")
 end})
-
-MiscTab:createLabel({Name = "Info", Special = true})
-MiscTab:createButton({Name = "Garden Stats", Callback = function()
-    local stats = getGardenStats()
-    local lines = {}
-    lines[#lines + 1] = "Plants: " .. stats.count
-    lines[#lines + 1] = "Total Value: " .. string.format("%.0f", stats.value)
-    lines[#lines + 1] = "Backpack Items: " .. countBackpackItems()
-    if next(stats.mutations) then
-        lines[#lines + 1] = "\nMutations:"
-        for mut, count in pairs(stats.mutations) do
-            lines[#lines + 1] = "  " .. mut .. ": " .. count
-        end
-    end
-    if next(stats.rarities) then
-        lines[#lines + 1] = "\nRarities:"
-        for rar, count in pairs(stats.rarities) do
-            lines[#lines + 1] = "  " .. rar .. ": " .. count
-        end
-    end
-    notify("Garden Stats", table.concat(lines, "\n"), "info")
-end})
-
-MiscTab:createButton({Name = "Weather History", Callback = function()
-    trackWeatherHistory()
-    local lines = getWeatherHistorySummary()
-    notify("Weather History", #lines > 0 and table.concat(lines, "\n") or "No weather recorded yet.", "info")
-end})
-
 
 -- LIFECYCLE
 Track(Players.PlayerRemoving:Connect(function(leaving)
@@ -2520,29 +2037,60 @@ Track(task.spawn(function()
     end
 end))
 
--- Anti-void loop
+-- Webhook: rare fruit scanner
 Track(task.spawn(function()
     while _alive do
-        task.wait(0.5)
-        if Library.Flags["AntiVoid"] then pcall(checkAntiVoid) end
+        task.wait(15)
+        pcall(function()
+            if not Library.Flags["WH_Rare"] then return end
+            local url = Library.Flags["WebhookURL"]
+            if not url or url == "" then return end
+            authenticatePlot()
+            if not PL.plantsFolder then return end
+            local minRarity = selectedMode("WH_Rarity", "Legendary")
+            local minScore = ({Legendary = 6, Mythic = 7, Rainbow = 10, Gold = 10})[minRarity] or 6
+            local ping = Library.Flags["WebhookPing"]
+            for _, plant in ipairs(PL.plantsFolder:GetChildren()) do
+                if plant:IsA("Model") then
+                    local rarity = tostring(plant:GetAttribute("Rarity") or ""):lower()
+                    if (RarityScore[rarity] or 0) >= minScore then
+                        local msg = string.format("Rare: %s | %s | value %.0f", plant.Name, rarity, calculatePlantValue(plant))
+                        if ping and ping ~= "" then msg = ping .. " " .. msg end
+                        sendWebhook(url, msg)
+                        break
+                    end
+                end
+            end
+        end)
     end
 end))
 
--- Weather history tracker
+-- Webhook: backpack full
 Track(task.spawn(function()
     while _alive do
         task.wait(10)
-        pcall(trackWeatherHistory)
+        pcall(function()
+            if not Library.Flags["WH_Full"] then return end
+            if not isBackpackFull() then return end
+            local url = Library.Flags["WebhookURL"]
+            if not url or url == "" then return end
+            local ping = Library.Flags["WebhookPing"]
+            local msg = "Backpack is full!"
+            if ping and ping ~= "" then msg = ping .. " " .. msg end
+            sendWebhook(url, msg)
+            task.wait(60)
+        end)
     end
 end))
 
-
-
--- Stock change tracking
-Track(task.spawn(function()
-    while _alive do
+-- Auto-reconnect on disconnect
+Track(Players.LocalPlayer.OnTeleport:Connect(function(state)
+    if state == Enum.TeleportState.Started then
+        print("[GAG 2] Teleport detected")
+    elseif state == Enum.TeleportState.Failed then
+        print("[GAG 2] Teleport failed - retrying...")
         task.wait(5)
-        pcall(trackStockChanges)
+        pcall(function() TeleportService:Teleport(game.PlaceId, client) end)
     end
 end))
 
