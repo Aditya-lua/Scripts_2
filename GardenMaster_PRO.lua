@@ -1,3 +1,10 @@
+--[[
+    Versus Airlines | GAG 2
+    Grow a Garden 2 — Full Autofarm
+    Built from decompiled GAG2 source
+    Networking: ReplicatedStorage.SharedModules.Networking
+]]
+
 local request = (syn and syn.request) or (http and http.request) or http_request
 local client = game:GetService("Players").LocalPlayer
 
@@ -42,36 +49,25 @@ end
 -- LIBRARY
 print("[GAG 2] Versus Airlines loading...")
 
-local uiUrl = "https://versusairlines.top/scripts/NewLibrary.lua"
-local fetchOk, rawScript = pcall(function()
-    return game:HttpGet(uiUrl)
-end)
-
--- Validate that the request succeeded and didn't return a dead HTML page
-if not fetchOk or not rawScript or rawScript:find("404 Not Found") or rawScript:find("html") then
-    warn("[GAG 2] FATAL: Failed to fetch UI Library. The host might be down or the request dropped.")
-    return
-end
-
--- Validate that the response is actually compilable Lua code
-local compiledScript = loadstring(rawScript)
-if type(compiledScript) ~= "function" then
-    warn("[GAG 2] FATAL: UI Library failed to compile. The server returned invalid code.")
-    return
-end
-
--- Safely execute the compiled script
-local Library = compiledScript()
-if type(Library) ~= "table" then
-    warn("[GAG 2] FATAL: UI Library initialized incorrectly.")
-    return
+local Library
+do
+    local ok, err = pcall(function()
+        local code = game:HttpGet("https://versusairlines.top/scripts/NewLibrary.lua")
+        if not code or #code < 50 then error("empty response from library URL") end
+        local fn = loadstring(code)
+        if not fn then error("loadstring returned nil - executor may not support this") end
+        Library = fn()
+    end)
+    if not ok or not Library then
+        warn("[VA] Library load failed: " .. tostring(err))
+        return
+    end
 end
 
 local UI = Library:Setup({
     Location = CoreGui,
     OpenCloseLocation = "Bottom Right"
 })
-
 
 -- ANTI-AFK
 Track(client.Idled:Connect(function()
