@@ -75,7 +75,7 @@ pcall(function()
 end)
 
 -- ----- flags table (shared across library variants) -----
-local Flags = {}
+
 
 -- ----- helpers -----
 local function trim(s) return tostring(s or ""):gsub("^%s+",""):gsub("%s+$","") end
@@ -794,6 +794,11 @@ local UI = Library:Setup({
     Location = Core,
     OpenCloseLocation = "Bottom Right"
 })
+
+-- Link Flags to the library's internal flag table.
+-- Versus Airlines stores toggle/dropdown values in Library.Flags.
+-- All feature callbacks read from this table.
+local Flags = Library.Flags
 
 local function notify(title, desc, style)
     Library:createDisplayMessage(title, desc, {{ text = "OK" }}, style or "info")
