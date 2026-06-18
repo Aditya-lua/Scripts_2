@@ -255,6 +255,9 @@ local function plotOwner(plot)
     if type(uid)=="number" then return uid end
     local sv=plot:FindFirstChild("OwnerUserId") or plot:FindFirstChild("OwnerId")
     if sv and sv:IsA("ValueBase") then return sv.Value end
+    -- Fallback: GAG 2 tracks ownership via player:GetAttribute("PlotId") -> "Plot"..id
+    local plotNum=tonumber(tostring(plot.Name):match("Plot (%d+)"))
+    if plotNum then for _,plr in ipairs(Players:GetPlayers()) do if plr:GetAttribute("PlotId")==plotNum then return plr.UserId end end end
     return nil
 end
 local function authPlot()
@@ -436,12 +439,13 @@ local function getCandidates(mx,fruitF,mutF,rarF,ownedOnly,blist)
         local pid=m:GetAttribute("PlantId"); local fid=m:GetAttribute("FruitId")
         local sc=plantValue(m); local d=hrp and (m:GetPivot().Position-hrp.Position).Magnitude or 0
         local po=pom[m]
-        candidates[#candidates+1]={model=m,plantId=pid,fruitId=fid,score=sc,distance=d,isOwned=isOurs,plotOwner=po,position=m:GetPivot().Position}
+        local finalOwner = po or m:GetAttribute("UserId")
+        candidates[#candidates+1]={model=m,plantId=pid,fruitId=fid,score=sc,distance=d,isOwned=isOurs,plotOwner=finalOwner,position=m:GetPivot().Position}
     end
     for _,prompt in ipairs(ColServ:GetTagged("HarvestPrompt")) do add(prompt:FindFirstAncestorWhichIsA("Model"),true) end
     for _,p in ipairs(gardens:GetChildren()) do
         if p:IsA("Model") or p:IsA("Folder") then
-            local ours=plotOwner(p)==client.UserId; local pff=p:FindFirstChild("Plants")
+            local poResult=plotOwner(p); local ours=poResult==client.UserId; local pff=p:FindFirstChild("Plants")
             if pff then for _,mm in ipairs(pff:GetChildren()) do if mm:IsA("Model") then add(mm,ours) end end end
         end
     end
@@ -532,7 +536,8 @@ local function searchFruits(fn,mt,rr,mnVal,incOwn)
             end
             local val=plantValue(m); if mnVal and val<mnVal then continue end
             local pos=m:GetPivot().Position; local d=hrp and (pos-hrp.Position).Magnitude or 0
-            results[#results+1]={model=m,plantId=m:GetAttribute("PlantId"),fruitId=m:GetAttribute("FruitId"),score=val,distance=d,isOwned=isOurs,plotOwner=po,position=pos}
+            local finalOwner = po or m:GetAttribute("UserId")
+            results[#results+1]={model=m,plantId=m:GetAttribute("PlantId"),fruitId=m:GetAttribute("FruitId"),score=val,distance=d,isOwned=isOurs,plotOwner=finalOwner,position=pos}
         end
     end
     table.sort(results,function(a,b) if a.score~=b.score then return a.score>b.score end; return a.distance<b.distance end)
